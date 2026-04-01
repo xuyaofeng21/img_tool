@@ -13,6 +13,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
 
+import cv2
+import imagehash
+from PIL import Image
+
 
 LogFn = Callable[[str, str], None]
 
@@ -78,6 +82,234 @@ def _ensure_safe_output_dir(path: str, protected_roots: list[Path], field_name: 
     target = Path(path).expanduser().resolve()
     _ensure_not_inside(target, protected_roots, field_name)
     return _ensure_dir(str(target), field_name)
+
+
+def _resolve_existing_path(value: Any) -> Path | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    path = Path(text).expanduser().resolve()
+    if path.exists():
+        return path
+    return None
+
+
+def _iter_preview_files(root: Path, recursive: bool = False) -> list[Path]:
+    if root.is_file():
+        return [root]
+    if not root.is_dir():
+        return []
+    if recursive:
+        return [p for p in root.rglob("*") if p.is_file()]
+    return [p for p in root.iterdir() if p.is_file()]
+
+
+def _build_preview_result(root: Path, recursive: bool = False, sample_limit: int = 20) -> dict[str, Any]:
+    files = _iter_preview_files(root, recursive=recursive)
+    counts: dict[str, int] = {}
+    for file_path in files:
+        suffix = file_path.suffix.lower().lstrip(".") or "[no_ext]"
+        counts[suffix] = counts.get(suffix, 0) + 1
+    sorted_counts = dict(sorted(counts.items(), key=lambda item: (-item[1], item[0])))
+    samples = [str(path) for path in files[:sample_limit]]
+    return {
+        "ok": True,
+        "counts_by_ext": sorted_counts,
+        "sample_files": samples,
+        "total_files": len(files),
+        "error": "",
+    }
+
+
+def preview_path_info(payload: dict[str, Any]) -> dict[str, Any]:
+    try:
+        if not isinstance(payload, dict):
+            raise ValueError("payload 必须是对象")
+
+        recursive = bool(payload.get("recursive", False))
+        sample_limit_raw = payload.get("sample_limit", 20)
+        try:
+            sample_limit = int(sample_limit_raw)
+        except (TypeError, ValueError):
+            sample_limit = 20
+        if sample_limit <= 0:
+            sample_limit = 20
+
+        root = _resolve_preview_target(payload)
+        return _build_preview_result(root, recursive=recursive, sample_limit=sample_limit)
+    except Exception as exc:
+        return {
+            "ok": False,
+            "counts_by_ext": {},
+            "sample_files": [],
+            "total_files": 0,
+            "error": str(exc),
+        }
+
+
+def _first_existing_path_from_mapping(mapping: dict[str, Any], keys: list[str]) -> Path | None:
+    for key in keys:
+        if key not in mapping:
+            continue
+        resolved = _resolve_existing_path(mapping.get(key))
+        if resolved is not None:
+            return resolved
+    return None
+
+
+def _resolve_preview_target(payload: dict[str, Any]) -> Path:
+    if not isinstance(payload, dict):
+        raise ValueError("payload 必须是对象")
+
+    candidates: list[Any] = []
+    for key in ("path", "file", "input_path", "input_dir", "source_path", "source_dir", "json_dir", "image_dir", "output_dir"):
+        if key in payload:
+            candidates.append(payload.get(key))
+
+    paths = payload.get("paths")
+    if isinstance(paths, dict):
+        for key in ("path", "file", "input_path", "input_dir", "source_path", "source_dir", "json_dir", "image_dir", "output_dir"):
+            if key in paths:
+                candidates.append(paths.get(key))
+
+    for candidate in candidates:
+        resolved = _resolve_existing_path(candidate)
+        if resolved is not None:
+            return resolved
+
+    raise ValueError("未找到可预览的有效路径")
+
+
+def _stage_single_file(file_path: Path, task_name: str) -> tuple[Path, Path]:
+    stage_dir = Path(tempfile.mkdtemp(prefix=f"{task_name}_stage_"))
+    staged = stage_dir / file_path.name
+    shutil.copy2(file_path, staged)
+    return stage_dir, staged
+
+
+def _backup_single_file(file_path: Path, backup_dir: str, task_name: str) -> Path:
+    backup_root = _ensure_dir(backup_dir, "backup_dir")
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    session = backup_root / f"{task_name}_{stamp}"
+    suffix = 1
+    while session.exists():
+        suffix += 1
+        session = backup_root / f"{task_name}_{stamp}_{suffix}"
+    session.mkdir(parents=True, exist_ok=False)
+    dst = session / file_path.name
+    shutil.copy2(file_path, dst)
+    return session
+
+
+def _save_image_as_rgb(src_path: Path, dst_path: Path) -> None:
+    img = cv2.imread(str(src_path), cv2.IMREAD_UNCHANGED)
+    if img is None:
+        raise ValueError(f"无法读取图像: {src_path.name}")
+
+    if len(img.shape) == 2:
+        Image.fromarray(img).save(dst_path)
+        return
+
+    if img.shape[2] == 4:
+        converted = cv2.cvtColor(img, cv2.COLOR_BGRA2RGBA)
+        Image.fromarray(converted).save(dst_path)
+        return
+
+    converted = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    Image.fromarray(converted).save(dst_path)
+
+
+def _convert_folder_bgr_to_rgb(input_dir: Path, output_dir: Path, log: LogFn) -> tuple[int, int, int]:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    supported = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif", ".gif", ".webp"}
+    success = 0
+    fail = 0
+
+    files = [p for p in sorted(input_dir.iterdir()) if p.is_file() and p.suffix.lower() in supported]
+    if not files:
+        log("warn", f"在目录 '{input_dir}' 中未找到支持的图片文件")
+        return 0, 0, 0
+
+    log("info", f"找到 {len(files)} 个图片文件")
+    for file_path in files:
+        try:
+            _save_image_as_rgb(file_path, output_dir / file_path.name)
+            log("info", f"成功处理并保存: {file_path.name}")
+            success += 1
+        except Exception as exc:
+            log("error", f"处理图像 {file_path.name} 时发生错误: {exc}")
+            fail += 1
+    log("info", "所有图像处理完成")
+    return success, fail, 0
+
+
+def _file_preview_name(path: Path) -> str:
+    return str(path.name)
+
+
+def _compute_phash(file_path: Path):
+    return imagehash.phash(Image.open(file_path))
+
+
+def _select_diverse_with_target(
+    input_dir: Path,
+    output_dir: Path,
+    target_count: int,
+    hamming_thresh: int,
+    log: LogFn,
+) -> tuple[int, int, int]:
+    png_files = sorted([p for p in input_dir.iterdir() if p.is_file() and p.suffix.lower() == ".png"])
+    total = len(png_files)
+    if total == 0:
+        log("warn", "没有找到 PNG 图片！")
+        return 0, 0, 0
+
+    target_count = max(1, min(target_count, total))
+    log("info", f"按张数优先执行，目标精选 {target_count} 张")
+
+    hashes: list[tuple[Path, Any] | None] = []
+    for file_path in png_files:
+        try:
+            hashes.append((file_path, _compute_phash(file_path)))
+        except Exception as exc:
+            log("warn", f"无法处理 {file_path.name}: {exc}")
+            hashes.append(None)
+
+    valid = [item for item in hashes if item is not None]
+    if not valid:
+        return 0, 0, 0
+
+    selected: list[tuple[Path, Any]] = []
+    for file_path, file_hash in valid:
+        if not selected:
+            selected.append((file_path, file_hash))
+            continue
+        min_dist = min((file_hash - chosen_hash) for _, chosen_hash in selected)
+        if min_dist > hamming_thresh:
+            selected.append((file_path, file_hash))
+
+    if len(selected) > target_count:
+        step = len(selected) / target_count
+        selected = [selected[int(i * step)] for i in range(target_count)]
+    elif len(selected) < target_count:
+        chosen_paths = {p for p, _ in selected}
+        remaining = [item for item in valid if item[0] not in chosen_paths]
+        remaining.sort(
+            key=lambda item: min((item[1] - chosen_hash) for _, chosen_hash in selected) if selected else 0,
+            reverse=True,
+        )
+        for item in remaining:
+            if len(selected) >= target_count:
+                break
+            selected.append(item)
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    for file_path, _ in selected:
+        shutil.copy2(file_path, output_dir / file_path.name)
+    log("info", f"兼容回退完成，已复制 {len(selected)} 张图片。")
+    return len(selected), 0, 0
 
 
 def _run_with_captured_stdout(log: LogFn, func: Callable[..., Any], *args: Any, **kwargs: Any) -> list[str]:
@@ -186,46 +418,73 @@ def _validate_mode(mode: str) -> str:
     return mode
 
 
-def _run_bgr2rgb(paths: dict[str, Any], mode: str, backup_dir: str, log: LogFn) -> dict[str, Any]:
+def _run_bgr2rgb(paths: dict[str, Any], params: dict[str, Any], mode: str, backup_dir: str, log: LogFn) -> dict[str, Any]:
     module = _load_script_module("script_bgr2rgb", "bgr2rgb.py")
     convert = module.convert_rgb_to_bgr_and_save
+    convert_reverse = getattr(module, "convert_bgr_to_rgb_and_save", None)
 
-    input_dir = _normalize_dir(str(paths.get("input_dir", "")), "input_dir", must_exist=True)
+    input_mode = str(paths.get("input_mode", "folder")).strip().lower()
+    color_direction = str(params.get("color_direction", "rgb_to_bgr")).strip().lower()
+    if color_direction not in {"rgb_to_bgr", "bgr_to_rgb"}:
+        raise ValueError("color_direction 必须为 rgb_to_bgr 或 bgr_to_rgb")
+
+    if input_mode == "file":
+        source_path = _first_existing_path_from_mapping(paths, ["input_file", "source_file", "input_path", "file_path", "input_dir", "source_dir"])
+        if source_path is None or not source_path.is_file():
+            raise ValueError("文件模式下必须提供有效的单个输入文件路径")
+        working_input, _ = _stage_single_file(source_path, "bgr2rgb")
+        inplace_output_path = source_path.parent
+    else:
+        source_path = _first_existing_path_from_mapping(paths, ["input_dir", "source_dir", "input_path"])
+        if source_path is None or not source_path.is_dir():
+            raise ValueError("输入目录无效")
+        working_input = source_path
+        inplace_output_path = source_path
+
     backup_path = ""
-
     if mode == "safe_copy":
-        output_dir = _ensure_safe_output_dir(str(paths.get("output_dir", "")), [input_dir], "output_dir")
-        lines = _run_with_captured_stdout(log, convert, str(input_dir), str(output_dir))
-        success, fail, skipped = _counts_from_bgr(lines)
-        return {
-            "status": "success",
-            "success_count": success,
-            "fail_count": fail,
-            "skipped_count": skipped,
-            "output_path": str(output_dir),
-            "backup_path": backup_path,
-            "error": "",
-        }
+        output_dir = _ensure_safe_output_dir(str(paths.get("output_dir", "")), [source_path], "output_dir")
+        process_output_dir = output_dir
+        result_output_path = output_dir
+    else:
+        if not backup_dir:
+            raise ValueError("原地修改模式必须提供 backup_dir")
+        backup_session = _backup_single_file(source_path, backup_dir, "bgr2rgb") if input_mode == "file" else _backup_directories("bgr2rgb", [source_path], backup_dir, log)
+        backup_path = str(backup_session)
+        process_output_dir = Path(tempfile.mkdtemp(prefix="bgr2rgb_out_"))
+        result_output_path = inplace_output_path
 
-    if not backup_dir:
-        raise ValueError("原地修改模式必须提供 backup_dir")
-    backup_session = _backup_directories("bgr2rgb", [input_dir], backup_dir, log)
-    backup_path = str(backup_session)
-
-    temp_dir = Path(tempfile.mkdtemp(prefix="bgr2rgb_tmp_", dir=str(backup_session)))
     try:
-        lines = _run_with_captured_stdout(log, convert, str(input_dir), str(temp_dir))
-        _copy_all_files(temp_dir, input_dir)
-    finally:
-        shutil.rmtree(temp_dir, ignore_errors=True)
+        if color_direction == "rgb_to_bgr":
+            lines = _run_with_captured_stdout(log, convert, str(working_input), str(process_output_dir))
+            success, fail, skipped = _counts_from_bgr(lines)
+        else:
+            if callable(convert_reverse):
+                lines = _run_with_captured_stdout(log, convert_reverse, str(working_input), str(process_output_dir))
+                success, fail, skipped = _counts_from_bgr(lines)
+            else:
+                success, fail, skipped = _convert_folder_bgr_to_rgb(working_input, process_output_dir, log)
 
-    success, fail, skipped = _counts_from_bgr(lines)
+        if mode == "in_place":
+            if input_mode == "file":
+                produced = next((p for p in process_output_dir.iterdir() if p.is_file()), None)
+                if produced is None:
+                    raise RuntimeError("文件模式未生成输出文件")
+                shutil.copy2(produced, source_path)
+            else:
+                _copy_all_files(process_output_dir, source_path)
+    finally:
+        if mode == "in_place":
+            shutil.rmtree(process_output_dir, ignore_errors=True)
+        if input_mode == "file":
+            shutil.rmtree(working_input, ignore_errors=True)
+
     return {
         "status": "success",
         "success_count": success,
         "fail_count": fail,
         "skipped_count": skipped,
-        "output_path": str(input_dir),
+        "output_path": str(result_output_path),
         "backup_path": backup_path,
         "error": "",
     }
@@ -271,7 +530,15 @@ def _run_select_diverse(
     module = _load_script_module("script_select_diverse", "select_diverse.py")
     select = module.select_diverse_images
 
-    input_dir = _normalize_dir(str(paths.get("input_dir", "")), "input_dir", must_exist=True)
+    input_mode = str(paths.get("input_mode", "folder")).strip().lower()
+    source_path = _first_existing_path_from_mapping(paths, ["input_file", "source_file", "input_path", "file_path", "input_dir", "source_dir"])
+    if source_path is None:
+        raise ValueError("未找到有效输入路径")
+    if input_mode == "file" and not source_path.is_file():
+        raise ValueError("文件模式下必须提供有效的单个输入文件路径")
+    if input_mode != "file" and not source_path.is_dir():
+        raise ValueError("输入目录无效")
+
     try:
         select_ratio = float(params.get("select_ratio", 0.1))
     except (TypeError, ValueError) as exc:
@@ -280,42 +547,98 @@ def _run_select_diverse(
         hamming_thresh = int(params.get("hamming_thresh", 10))
     except (TypeError, ValueError) as exc:
         raise ValueError("hamming_thresh 必须是整数") from exc
+
+    target_count_raw = params.get("target_count")
+    target_count: int | None
+    if target_count_raw in (None, "", False):
+        target_count = None
+    else:
+        try:
+            target_count = int(target_count_raw)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("target_count 必须是整数") from exc
+        if target_count <= 0:
+            target_count = None
+
     if not (0 < select_ratio <= 1):
         raise ValueError("select_ratio 必须在 (0, 1] 区间")
     if hamming_thresh < 0:
         raise ValueError("hamming_thresh 必须 >= 0")
 
+    if target_count is not None:
+        log("warn", "已提供 target_count，将优先忽略 select_ratio。")
+
+    if input_mode == "file":
+        working_input, _ = _stage_single_file(source_path, "select_diverse")
+        inplace_output_path = source_path.parent
+    else:
+        working_input = source_path
+        inplace_output_path = source_path
+
     backup_path = ""
     if mode == "safe_copy":
-        output_dir = _ensure_safe_output_dir(str(paths.get("output_dir", "")), [input_dir], "output_dir")
+        output_dir = _ensure_safe_output_dir(str(paths.get("output_dir", "")), [source_path], "output_dir")
+        process_output_dir = output_dir
+        result_output_path = output_dir
     else:
         if not backup_dir:
             raise ValueError("原地修改模式必须提供 backup_dir")
-        backup_session = _backup_directories("select_diverse", [input_dir], backup_dir, log)
+        backup_session = _backup_single_file(source_path, backup_dir, "select_diverse") if input_mode == "file" else _backup_directories("select_diverse", [source_path], backup_dir, log)
         backup_path = str(backup_session)
-        output_dir = input_dir / "_selected_diverse"
-        output_dir.mkdir(parents=True, exist_ok=True)
+        process_output_dir = Path(tempfile.mkdtemp(prefix="select_diverse_out_"))
+        result_output_path = inplace_output_path
 
     try:
-        lines = _run_with_captured_stdout(
-            log, select, str(input_dir), str(output_dir), select_ratio=select_ratio, hamming_thresh=hamming_thresh
-        )
-        success, fail, skipped = _counts_from_select(lines)
-    except NameError as exc:
-        if "sf" not in str(exc):
-            raise
-        # Keep original script untouched, but provide a deterministic fallback for the known runtime typo.
-        log("warn", "select_diverse 脚本触发已知异常，启用兼容回退策略。")
-        success = _select_diverse_compat_fallback(input_dir, output_dir, select_ratio, log)
-        fail = 0
-        skipped = 0
+        if target_count is not None:
+            try:
+                lines = _run_with_captured_stdout(
+                    log,
+                    select,
+                    str(working_input),
+                    str(process_output_dir),
+                    select_ratio=select_ratio,
+                    hamming_thresh=hamming_thresh,
+                    target_count=target_count,
+                )
+                success, fail, skipped = _counts_from_select(lines)
+            except TypeError as exc:
+                if "target_count" not in str(exc):
+                    raise
+                log("warn", "当前脚本接口未暴露 target_count 参数，已切换到兼容内部筛选逻辑。")
+                success, fail, skipped = _select_diverse_with_target(working_input, process_output_dir, target_count, hamming_thresh, log)
+        else:
+            try:
+                lines = _run_with_captured_stdout(
+                    log, select, str(working_input), str(process_output_dir), select_ratio=select_ratio, hamming_thresh=hamming_thresh
+                )
+                success, fail, skipped = _counts_from_select(lines)
+            except NameError as exc:
+                if "sf" not in str(exc):
+                    raise
+                log("warn", "select_diverse 脚本触发已知异常，启用兼容回退策略。")
+                success = _select_diverse_compat_fallback(working_input, process_output_dir, select_ratio, log)
+                fail = 0
+                skipped = 0
+
+        if mode == "in_place":
+            if input_mode == "file":
+                produced = next((p for p in process_output_dir.iterdir() if p.is_file()), None)
+                if produced is not None:
+                    shutil.copy2(produced, source_path)
+            else:
+                _copy_all_files(process_output_dir, source_path)
+    finally:
+        if mode == "in_place":
+            shutil.rmtree(process_output_dir, ignore_errors=True)
+        if input_mode == "file":
+            shutil.rmtree(working_input, ignore_errors=True)
 
     return {
         "status": "success",
         "success_count": success,
         "fail_count": fail,
         "skipped_count": skipped,
-        "output_path": str(output_dir),
+        "output_path": str(result_output_path),
         "backup_path": backup_path,
         "error": "",
     }
@@ -417,7 +740,7 @@ def execute_task(payload: dict[str, Any], log: LogFn) -> dict[str, Any]:
 
     log("info", f"任务开始: task={task}, mode={mode}")
     if task == "bgr2rgb":
-        return _run_bgr2rgb(paths, mode, backup_dir, log)
+        return _run_bgr2rgb(paths, params, mode, backup_dir, log)
     if task == "rename2":
         return _run_rename(paths, params, mode, backup_dir, log)
     if task == "select_diverse":

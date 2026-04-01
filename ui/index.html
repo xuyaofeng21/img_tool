@@ -204,10 +204,19 @@
 
     .workspace {
       min-width: 0;
-      display: grid;
-      grid-template-rows: auto auto minmax(0, 1fr) auto;
+      display: flex;
+      flex-direction: column;
       gap: 14px;
       min-height: 0;
+      overflow-y: auto;
+      padding-right: 4px;
+      scrollbar-width: thin;
+      scrollbar-color: rgba(51, 112, 255, 0.25) transparent;
+    }
+
+    .workspace > section {
+      flex: 0 0 auto;
+      min-width: 0;
     }
 
     .hero,
@@ -271,6 +280,7 @@
     .hero-tags { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
 
     .form-card,
+    .preview-card,
     .log-card,
     .result-card {
       padding: 18px;
@@ -342,6 +352,74 @@
     .btn-ghost { background: rgba(255, 255, 255, 0.72); color: var(--text); border: 1px solid rgba(56, 92, 164, 0.12); }
     .helper { color: var(--muted); font-size: 12px; line-height: 1.45; }
     .divider { height: 1px; background: rgba(255, 255, 255, 0.72); margin: 2px 0; }
+
+    .preview-card { display: grid; gap: 12px; min-height: 0; }
+    .preview-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .preview-head h2 { margin: 0; font-size: 15px; }
+    .preview-summary { color: var(--muted); font-size: 12px; line-height: 1.45; }
+    .preview-grid {
+      display: grid;
+      gap: 12px;
+    }
+    .preview-block {
+      border-radius: 18px;
+      background: rgba(255, 255, 255, 0.76);
+      border: 1px solid rgba(56, 92, 164, 0.12);
+      padding: 14px;
+      min-width: 0;
+      display: grid;
+      gap: 10px;
+    }
+    .preview-block-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .preview-block-title { font-size: 13px; font-weight: 800; }
+    .preview-counts { display: flex; flex-wrap: wrap; gap: 8px; }
+    .preview-count-chip {
+      border-radius: 999px;
+      padding: 5px 9px;
+      background: rgba(51, 112, 255, 0.08);
+      border: 1px solid rgba(51, 112, 255, 0.18);
+      color: #2553c7;
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .preview-samples {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .preview-sample {
+      border-radius: 999px;
+      padding: 6px 10px;
+      background: rgba(15, 20, 31, 0.06);
+      color: var(--text);
+      font-size: 12px;
+      border: 1px solid rgba(56, 92, 164, 0.1);
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .preview-empty {
+      border-radius: 16px;
+      padding: 14px;
+      color: var(--muted);
+      background: rgba(255, 255, 255, 0.7);
+      border: 1px dashed rgba(56, 92, 164, 0.16);
+      font-size: 12px;
+      line-height: 1.5;
+    }
 
     .log-card { display: grid; gap: 12px; min-height: 0; }
     .log-head,
@@ -531,6 +609,16 @@
         </div>
       </section>
 
+      <section class="preview-card">
+        <div class="preview-head">
+          <h2>路径预览</h2>
+          <div class="preview-summary" id="previewSummary">选择路径后自动展示扩展名统计和样本文件。</div>
+        </div>
+        <div class="preview-grid" id="previewBox">
+          <div class="preview-empty">暂无预览数据。选择路径后会自动统计文件数量并展示前 20 个样本。</div>
+        </div>
+      </section>
+
       <section class="log-card">
         <div class="log-head">
           <h2>实时日志</h2>
@@ -588,13 +676,28 @@
       bgr2rgb: {
         title: "颜色通道转换",
         subtitle: "RGB -> BGR 批量转换",
-        desc: "调用 `script/bgr2rgb.py` 对图片进行批量颜色通道转换。支持安全复制和原地修改两种模式。",
+        desc: "调用 `script/bgr2rgb.py` 对图片进行批量颜色通道转换。支持文件夹/单文件输入、双向转换与两种执行模式。",
         badge: "图像处理",
+        supportsInputMode: true,
+        supportsColorDirection: true,
         paths: [
           { key: "input_dir", label: "输入目录", hint: "待处理图片所在目录", placeholder: "选择包含图片的文件夹", required: true },
           { key: "output_dir", label: "输出目录", hint: "安全复制模式下写入此目录", placeholder: "选择输出目录", required: true, safeOnly: true }
         ],
-        params: []
+        params: [
+          {
+            key: "color_direction",
+            label: "转换方向",
+            hint: "可在 RGB -> BGR 与 BGR -> RGB 之间切换",
+            type: "radio",
+            required: true,
+            default: "rgb_to_bgr",
+            options: [
+              { label: "RGB -> BGR", value: "rgb_to_bgr" },
+              { label: "BGR -> RGB", value: "bgr_to_rgb" }
+            ]
+          }
+        ]
       },
       rename2: {
         title: "批量重命名",
@@ -612,15 +715,18 @@
       select_diverse: {
         title: "多样性筛图",
         subtitle: "pHash 去重筛选",
-        desc: "调用 `script/select_diverse.py` 从 PNG 图片中按比例筛出更有场景差异的图片。",
+        desc: "调用 `script/select_diverse.py` 从 PNG 图片中按比例或张数筛出更有场景差异的图片。",
         badge: "筛选",
+        supportsInputMode: true,
+        supportsTargetCount: true,
         paths: [
           { key: "input_dir", label: "输入目录", hint: "包含 PNG 图片的文件夹", placeholder: "选择输入目录", required: true },
           { key: "output_dir", label: "输出目录", hint: "安全复制模式下写入此目录", placeholder: "选择输出目录", required: true, safeOnly: true }
         ],
         params: [
-          { key: "select_ratio", label: "精选比例", hint: "范围 0.01 - 1.00", placeholder: "0.1", required: true, type: "number", step: "0.01", min: "0.01", max: "1" },
-          { key: "hamming_thresh", label: "汉明阈值", hint: "越大越宽松，建议 8 - 15", placeholder: "10", required: true, type: "number", step: "1", min: "0" }
+          { key: "target_count", label: "筛选张数", hint: "填写后优先于比例；留空则按比例执行", placeholder: "", required: false, type: "number", step: "1", min: "1" },
+          { key: "select_ratio", label: "精选比例", hint: "范围 0.01 - 1.00，未填张数时生效", placeholder: "0.1", required: false, type: "number", step: "0.01", min: "0.01", max: "1", default: 0.1 },
+          { key: "hamming_thresh", label: "汉明阈值", hint: "越大越宽松，建议 8 - 15", placeholder: "10", required: true, type: "number", step: "1", min: "0", default: 10 }
         ]
       },
       json_path: {
@@ -650,6 +756,11 @@
       latestOutputPath: "",
       latestBackupPath: "",
       latestError: "",
+      previewTimer: null,
+      previewToken: 0,
+      previewLoading: false,
+      previewData: null,
+      previewError: "",
       formData: {}
     };
 
@@ -657,13 +768,16 @@
     const hasApi = () => Boolean(window.pywebview && window.pywebview.api);
 
     function ensureTaskState(taskKey) {
-      if (!state.formData[taskKey]) state.formData[taskKey] = { paths: {}, params: {}, backup_dir: "" };
+      if (!state.formData[taskKey]) state.formData[taskKey] = { paths: {}, params: {}, backup_dir: "", input_mode: "folder" };
       const task = TASKS[taskKey];
       task.params.forEach((param) => {
         if (state.formData[taskKey].params[param.key] === undefined && param.default !== undefined) {
           state.formData[taskKey].params[param.key] = param.default;
         }
       });
+      if (task.supportsInputMode && !state.formData[taskKey].input_mode) {
+        state.formData[taskKey].input_mode = "folder";
+      }
     }
 
     function escapeHtml(value) {
@@ -756,29 +870,123 @@
       const task = TASKS[state.activeTask];
       $("taskTitle").textContent = task.title;
       $("taskDesc").textContent = task.desc;
+      const taskState = state.formData[state.activeTask] || {};
+      const chips = [
+        `<span class="chip">${escapeHtml(task.badge)}</span>`,
+        `<span class="chip">${escapeHtml(task.subtitle)}</span>`,
+        `<span class="chip">${state.mode === "safe_copy" ? "安全复制" : "原地修改"}</span>`
+      ];
+      if (task.supportsInputMode) {
+        chips.push(`<span class="chip">${taskState.input_mode === "file" ? "单文件输入" : "文件夹输入"}</span>`);
+      }
       $("taskTags").innerHTML = `
-        <span class="chip">${escapeHtml(task.badge)}</span>
-        <span class="chip">${escapeHtml(task.subtitle)}</span>
-        <span class="chip">${state.mode === "safe_copy" ? "安全复制" : "原地修改"}</span>
+        ${chips.join("")}
       `;
     }
 
-    function renderPathRow(taskState, item) {
+    function isImageTask(taskKey) {
+      const task = TASKS[taskKey];
+      return Boolean(task && task.supportsInputMode);
+    }
+
+    function getInputMode(taskState) {
+      return taskState.input_mode === "file" ? "file" : "folder";
+    }
+
+    function getPrimaryPathMeta(task, taskState, item) {
+      if (!task.supportsInputMode || item.key !== "input_dir") {
+        return {
+          label: item.label,
+          hint: item.hint,
+          placeholder: item.placeholder || "",
+          actionLabel: "选择目录"
+        };
+      }
+      const inputMode = getInputMode(taskState);
+      if (inputMode === "file") {
+        return {
+          label: "输入文件",
+          hint: "选择单个图片文件进行处理",
+          placeholder: "选择单个图片文件",
+          actionLabel: "选择文件"
+        };
+      }
+      return {
+        label: "输入目录",
+        hint: "选择包含图片的文件夹",
+        placeholder: "选择包含图片的文件夹",
+        actionLabel: "选择目录"
+      };
+    }
+
+    function renderInputModeSection(taskState) {
+      return `
+        <section class="form-section">
+          <div class="form-section-head">
+            <div>
+              <h2>输入模式</h2>
+              <p>仅图像类任务支持文件夹/单文件两种输入方式。</p>
+            </div>
+          </div>
+          <div class="mode-group">
+            <label class="mode-option ${getInputMode(taskState) === "folder" ? "active" : ""}">
+              <input type="radio" name="input_mode" value="folder" ${getInputMode(taskState) === "folder" ? "checked" : ""} ${state.running ? "disabled" : ""} />
+              <div class="mode-label">
+                <strong>文件夹</strong>
+                <span>按目录批量处理，适合一次处理多张图片。</span>
+              </div>
+            </label>
+            <label class="mode-option ${getInputMode(taskState) === "file" ? "active" : ""}">
+              <input type="radio" name="input_mode" value="file" ${getInputMode(taskState) === "file" ? "checked" : ""} ${state.running ? "disabled" : ""} />
+              <div class="mode-label">
+                <strong>单文件</strong>
+                <span>对单个图片文件执行，适合快速预览与单样本处理。</span>
+              </div>
+            </label>
+          </div>
+        </section>
+      `;
+    }
+
+    function renderPathRow(taskKey, taskState, item) {
+      const task = TASKS[taskKey];
       const current = taskState.paths[item.key] || "";
+      const meta = getPrimaryPathMeta(task, taskState, item);
       return `
         <div class="field-row">
           <div class="field-label">
-            <strong>${escapeHtml(item.label)}</strong>
-            <span>${escapeHtml(item.hint)}</span>
+            <strong>${escapeHtml(meta.label)}</strong>
+            <span>${escapeHtml(meta.hint)}</span>
           </div>
-          <input class="input" type="text" data-kind="path" data-key="${escapeAttr(item.key)}" placeholder="${escapeAttr(item.placeholder || "")}" value="${escapeAttr(current)}" ${state.running ? "disabled" : ""} />
-          <button type="button" class="btn btn-ghost" data-browse="${escapeAttr(item.key)}" ${state.running ? "disabled" : ""}>选择目录</button>
+          <input class="input" type="text" data-kind="path" data-key="${escapeAttr(item.key)}" placeholder="${escapeAttr(meta.placeholder)}" value="${escapeAttr(current)}" ${state.running ? "disabled" : ""} />
+          <button type="button" class="btn btn-ghost" data-browse="${escapeAttr(item.key)}" data-browse-kind="${task.supportsInputMode && item.key === "input_dir" ? (getInputMode(taskState) === "file" ? "file" : "folder") : "folder"}" ${state.running ? "disabled" : ""}>${escapeHtml(meta.actionLabel)}</button>
         </div>
       `;
     }
 
     function renderParamRow(taskState, item) {
       const current = taskState.params[item.key] ?? item.default ?? "";
+      if (item.type === "radio") {
+        return `
+          <div class="field-row" style="grid-template-columns: 160px minmax(0, 1fr) auto;">
+            <div class="field-label">
+              <strong>${escapeHtml(item.label)}</strong>
+              <span>${escapeHtml(item.hint)}</span>
+            </div>
+            <div class="mode-group" style="grid-column: 2 / 4;">
+              ${item.options.map((option) => `
+                <label class="mode-option ${current === option.value ? "active" : ""}">
+                  <input type="radio" name="${escapeAttr(item.key)}" value="${escapeAttr(option.value)}" ${current === option.value ? "checked" : ""} ${state.running ? "disabled" : ""} />
+                  <div class="mode-label">
+                    <strong>${escapeHtml(option.label)}</strong>
+                    <span>${escapeHtml(option.value)}</span>
+                  </div>
+                </label>
+              `).join("")}
+            </div>
+          </div>
+        `;
+      }
       const numericType = item.type === "number" ? "number" : "text";
       return `
         <div class="field-row param">
@@ -806,11 +1014,253 @@
       `;
     }
 
+    function normalizeTextValue(value) {
+      return String(value ?? "").trim();
+    }
+
+    function buildCurrentTaskPayload(taskKey = state.activeTask, options = {}) {
+      ensureTaskState(taskKey);
+      const task = TASKS[taskKey];
+      const taskState = state.formData[taskKey];
+      const forPreview = Boolean(options.forPreview);
+      const paths = {};
+      const params = {};
+
+      for (const field of task.paths) {
+        if (forPreview && field.safeOnly) continue;
+        const value = normalizeTextValue(taskState.paths[field.key]);
+        if (value) paths[field.key] = value;
+      }
+
+      for (const field of task.params) {
+        const raw = taskState.params[field.key];
+        const value = normalizeTextValue(raw);
+        if (!value) continue;
+        if (field.type === "number") {
+          const num = Number(value);
+          if (!Number.isNaN(num)) params[field.key] = num;
+        } else {
+          params[field.key] = value;
+        }
+      }
+
+      if (task.supportsInputMode) {
+        paths.input_mode = getInputMode(taskState);
+        if (paths.input_mode === "file") {
+          const filePath = normalizeTextValue(taskState.paths.input_dir);
+          if (filePath) paths.input_path = filePath;
+        }
+      }
+
+      const backup_dir = normalizeTextValue(taskState.backup_dir);
+      return { task: taskKey, mode: state.mode, paths, params, backup_dir };
+    }
+
+    function hasPreviewTarget(payload) {
+      const pathValues = Object.values(payload.paths || {}).filter((value) => normalizeTextValue(value));
+      return pathValues.length > 0;
+    }
+
+    function clearPreviewTimer() {
+      if (state.previewTimer) {
+        window.clearTimeout(state.previewTimer);
+        state.previewTimer = null;
+      }
+    }
+
+    function setPreviewState({ loading = false, data = null, error = "" } = {}) {
+      state.previewLoading = loading;
+      state.previewData = data;
+      state.previewError = error;
+      renderPreview();
+    }
+
+    function normalizePreviewCountEntries(counts) {
+      if (!counts) return [];
+      if (Array.isArray(counts)) {
+        return counts
+          .map((entry) => {
+            if (entry && typeof entry === "object") {
+              const label = entry.ext ?? entry.extension ?? entry.label ?? entry.name ?? entry.key ?? entry.type ?? "";
+              const count = Number(entry.count ?? entry.value ?? entry.total ?? 0);
+              return { label: normalizeTextValue(label), count: Number.isFinite(count) ? count : 0 };
+            }
+            if (Array.isArray(entry) && entry.length >= 2) {
+              const [label, count] = entry;
+              return { label: normalizeTextValue(label), count: Number(count) || 0 };
+            }
+            return null;
+          })
+          .filter(Boolean);
+      }
+      if (typeof counts === "object") {
+        return Object.entries(counts).map(([label, count]) => ({ label: normalizeTextValue(label), count: Number(count) || 0 }));
+      }
+      return [];
+    }
+
+    function normalizePreviewSamples(samples) {
+      if (!samples) return [];
+      if (Array.isArray(samples)) {
+        return samples
+          .map((entry) => {
+            if (typeof entry === "string") return normalizeTextValue(entry);
+            if (entry && typeof entry === "object") {
+              const value = entry.display ?? entry.path ?? entry.name ?? entry.file ?? entry.text ?? entry.label ?? "";
+              return normalizeTextValue(value);
+            }
+            return normalizeTextValue(entry);
+          })
+          .filter(Boolean)
+          .slice(0, 20);
+      }
+      if (typeof samples === "object") {
+        return Object.values(samples).map((value) => normalizeTextValue(value)).filter(Boolean).slice(0, 20);
+      }
+      return [];
+    }
+
+    function normalizePreviewSections(response) {
+      const source = response && typeof response === "object" && (response.data || response.result || response.payload || response.preview)
+        ? (response.data || response.result || response.payload || response.preview)
+        : response;
+      const rawSections = Array.isArray(source?.sections) && source.sections.length ? source.sections : [source];
+      return rawSections
+        .filter(Boolean)
+        .map((section, index) => {
+          const title = normalizeTextValue(section.title || section.name || section.label || section.path_label || `预览 ${index + 1}`);
+          const path = normalizeTextValue(section.path || section.dir || section.directory || section.input_path || section.target_path || "");
+          const totalFiles = Number(section.total_files ?? section.total ?? section.count ?? section.file_count ?? 0) || 0;
+          const counts = normalizePreviewCountEntries(section.counts_by_ext || section.counts || section.extensions || section.ext_counts || section.extCount || section.summary);
+          const samples = normalizePreviewSamples(section.sample_files || section.samples || section.files || section.items || section.preview_files);
+          const error = normalizeTextValue(section.error || "");
+          return { title, path, totalFiles, counts, samples, error };
+        });
+    }
+
+    function formatPreviewSummary(sections) {
+      const totalFiles = sections.reduce((sum, section) => sum + (Number(section.totalFiles) || 0), 0);
+      const totalKinds = new Set();
+      let sampleCount = 0;
+      sections.forEach((section) => {
+        section.counts.forEach((item) => {
+          if (item.label) totalKinds.add(item.label);
+        });
+        sampleCount += section.samples.length;
+      });
+      if (!sections.length) return "暂无预览数据";
+      if (totalFiles > 0) {
+        return `共 ${totalFiles} 个文件，${totalKinds.size || sections.length} 类扩展名，展示前 ${Math.min(sampleCount || 20, 20)} 个样本`;
+      }
+      return `已返回 ${sections.length} 个预览块，展示前 ${Math.min(sampleCount || 20, 20)} 个样本`;
+    }
+
+    function renderPreview() {
+      const summaryBox = $("previewSummary");
+      const previewBox = $("previewBox");
+      if (!summaryBox || !previewBox) return;
+
+      if (state.previewLoading) {
+        summaryBox.textContent = "正在刷新路径预览…";
+        previewBox.innerHTML = `<div class="preview-empty">预览请求已发出，正在读取文件统计，请稍候。</div>`;
+        return;
+      }
+
+      if (state.previewError) {
+        summaryBox.textContent = "预览失败";
+        previewBox.innerHTML = `<div class="preview-empty">${escapeHtml(state.previewError)}</div>`;
+        return;
+      }
+
+      if (!state.previewData) {
+        summaryBox.textContent = "选择路径后自动展示扩展名统计和样本文件。";
+        previewBox.innerHTML = `<div class="preview-empty">暂无预览数据。选择路径后会自动统计文件数量并展示前 20 个样本。</div>`;
+        return;
+      }
+
+      const sections = normalizePreviewSections(state.previewData);
+      if (!sections.length) {
+        summaryBox.textContent = "暂无预览数据";
+        previewBox.innerHTML = `<div class="preview-empty">后端已返回结果，但当前没有可展示的路径统计。</div>`;
+        return;
+      }
+
+      summaryBox.textContent = formatPreviewSummary(sections);
+      previewBox.innerHTML = sections.map((section) => {
+        const countsHtml = section.counts.length
+          ? section.counts.map((item) => `<span class="preview-count-chip">${escapeHtml(item.label || "unknown")} · ${Number(item.count) || 0}</span>`).join("")
+          : `<span class="preview-empty" style="display:inline-flex;align-items:center;min-height:0;">暂无扩展名统计</span>`;
+        const sampleHtml = section.samples.length
+          ? section.samples.map((sample) => `<span class="preview-sample" title="${escapeAttr(sample)}">${escapeHtml(sample)}</span>`).join("")
+          : `<span class="preview-empty" style="display:inline-flex;align-items:center;min-height:0;">暂无样本文件</span>`;
+        return `
+          <article class="preview-block">
+            <div class="preview-block-head">
+              <div class="preview-block-title">${escapeHtml(section.title)}</div>
+              ${section.path ? `<div class="helper" title="${escapeAttr(section.path)}">${escapeHtml(truncatePath(section.path))}</div>` : ""}
+            </div>
+            <div class="preview-counts">${countsHtml}</div>
+            <div class="preview-samples">${sampleHtml}</div>
+            ${section.error ? `<div class="helper" style="color: var(--danger);">${escapeHtml(section.error)}</div>` : ""}
+          </article>
+        `;
+      }).join("");
+    }
+
+    async function requestPreview() {
+      clearPreviewTimer();
+      const payload = buildCurrentTaskPayload(state.activeTask, { forPreview: true });
+      if (!hasPreviewTarget(payload)) {
+        setPreviewState({ loading: false, data: null, error: "" });
+        return;
+      }
+      const api = hasApi() ? window.pywebview.api : null;
+      if (!api || typeof api.preview_path !== "function") {
+        setPreviewState({ loading: false, data: null, error: "预览接口尚未连接，请先通过 Python 主程序启动应用。"});
+        return;
+      }
+      const token = ++state.previewToken;
+      setPreviewState({ loading: true, data: null, error: "" });
+      try {
+        const response = await api.preview_path(payload);
+        if (token !== state.previewToken) return;
+        if (response && response.ok === false) {
+          throw new Error(response.error || "路径预览失败");
+        }
+        state.previewLoading = false;
+        state.previewError = "";
+        state.previewData = response || null;
+        renderPreview();
+      } catch (error) {
+        if (token !== state.previewToken) return;
+        setPreviewState({ loading: false, data: null, error: error?.message || String(error) });
+      }
+    }
+
+    function schedulePreview() {
+      clearPreviewTimer();
+      state.previewTimer = window.setTimeout(() => {
+        state.previewTimer = null;
+        requestPreview();
+      }, 280);
+    }
+
+    function setInputMode(mode) {
+      const taskState = state.formData[state.activeTask];
+      taskState.input_mode = mode === "file" ? "file" : "folder";
+      renderTask();
+      renderForm();
+      schedulePreview();
+    }
+
     function renderForm() {
       ensureTaskState(state.activeTask);
       const task = TASKS[state.activeTask];
       const taskState = state.formData[state.activeTask];
       const sections = [];
+      if (task.supportsInputMode) {
+        sections.push(renderInputModeSection(taskState));
+      }
       sections.push(`
         <section class="form-section">
           <div class="form-section-head">
@@ -820,7 +1270,7 @@
             </div>
           </div>
           <div class="field-grid">
-            ${task.paths.filter((item) => !(item.safeOnly && state.mode === "in_place")).map((item) => renderPathRow(taskState, item)).join("")}
+            ${task.paths.filter((item) => !(item.safeOnly && state.mode === "in_place")).map((item) => renderPathRow(state.activeTask, taskState, item)).join("")}
           </div>
         </section>
       `);
@@ -852,6 +1302,7 @@
       }
       $("taskForm").innerHTML = sections.join("");
       bindDynamicInputs();
+      schedulePreview();
     }
 
     function renderAll() {
@@ -867,6 +1318,8 @@
       document.querySelectorAll('input[data-kind="param"]').forEach((input) => input.addEventListener("input", onFormInput));
       const backupInput = document.querySelector('input[data-kind="backup"]');
       if (backupInput) backupInput.addEventListener("input", onFormInput);
+      document.querySelectorAll('input[name="input_mode"]').forEach((input) => input.addEventListener("change", onInputModeChange));
+      document.querySelectorAll('input[name="color_direction"]').forEach((input) => input.addEventListener("change", onParamRadioChange));
       document.querySelectorAll("button[data-browse]").forEach((btn) => btn.addEventListener("click", onBrowseClick));
     }
 
@@ -877,6 +1330,22 @@
       if (target.dataset.kind === "path") taskState.paths[key] = target.value;
       else if (target.dataset.kind === "param") taskState.params[key] = target.value;
       else if (target.dataset.kind === "backup") taskState.backup_dir = target.value;
+      schedulePreview();
+    }
+
+    function onInputModeChange(event) {
+      if (state.running) return;
+      const mode = event.currentTarget.value === "file" ? "file" : "folder";
+      setInputMode(mode);
+    }
+
+    function onParamRadioChange(event) {
+      if (state.running) return;
+      const input = event.currentTarget;
+      const taskState = state.formData[state.activeTask];
+      taskState.params[input.name] = input.value;
+      renderTask();
+      schedulePreview();
     }
 
     async function onBrowseClick(event) {
@@ -884,18 +1353,20 @@
       if (state.running) return;
       const button = event.currentTarget;
       const key = button.dataset.browse;
-      const folder = await chooseFolder();
-      if (!folder) return;
+      const browseKind = button.dataset.browseKind || "folder";
+      const path = browseKind === "file" ? await chooseFile() : await chooseFolder();
+      if (!path) return;
       const taskState = state.formData[state.activeTask];
       if (key === "backup_dir") {
-        taskState.backup_dir = folder;
+        taskState.backup_dir = path;
         const backupInput = document.querySelector('input[data-kind="backup"]');
-        if (backupInput) backupInput.value = folder;
+        if (backupInput) backupInput.value = path;
       } else {
-        taskState.paths[key] = folder;
+        taskState.paths[key] = path;
         const input = document.querySelector(`input[data-kind="path"][data-key="${cssEscape(key)}"]`);
-        if (input) input.value = folder;
+        if (input) input.value = path;
       }
+      schedulePreview();
     }
 
     function persistCurrentForm() {
@@ -904,6 +1375,10 @@
       document.querySelectorAll('input[data-kind="param"]').forEach((input) => { currentTaskState.params[input.dataset.key] = input.value; });
       const backupInput = document.querySelector('input[data-kind="backup"]');
       if (backupInput) currentTaskState.backup_dir = backupInput.value;
+      const inputMode = document.querySelector('input[name="input_mode"]:checked');
+      if (inputMode) currentTaskState.input_mode = inputMode.value === "file" ? "file" : "folder";
+      const colorDirection = document.querySelector('input[name="color_direction"]:checked');
+      if (colorDirection) currentTaskState.params.color_direction = colorDirection.value;
     }
 
     function setMode(mode) {
@@ -913,6 +1388,7 @@
       renderTask();
       renderForm();
       syncRunningState();
+      schedulePreview();
     }
 
     function setStatus(status, message) {
@@ -973,6 +1449,20 @@
       }
     }
 
+    async function chooseFile() {
+      const api = hasApi() ? window.pywebview.api : null;
+      if (!api || typeof api.select_file !== "function") {
+        appendLog("warn", "当前环境未连接到 pywebview，文件选择不可用。");
+        return "";
+      }
+      try {
+        return await api.select_file();
+      } catch (error) {
+        appendLog("error", `文件选择失败: ${error?.message || error}`);
+        return "";
+      }
+    }
+
     function confirmInPlaceExecution(backupDir) {
       const modal = $("confirmModal");
       const desc = $("confirmDesc");
@@ -1026,10 +1516,23 @@
         paths[field.key] = value;
       }
 
+      if (task.supportsInputMode) {
+        paths.input_mode = getInputMode(taskState);
+        if (paths.input_mode === "file") {
+          const filePath = String(taskState.paths.input_dir || "").trim();
+          if (!filePath) throw new Error("请先选择单文件输入路径");
+          paths.input_path = filePath;
+        }
+      }
+
       for (const field of task.params) {
         const raw = taskState.params[field.key];
         const value = String(raw ?? "").trim();
-        if (field.required && !value) throw new Error(`请填写 ${field.label}`);
+        if (!value) {
+          if (field.required) throw new Error(`请填写 ${field.label}`);
+          if (field.default !== undefined && field.key !== "target_count") params[field.key] = field.default;
+          continue;
+        }
         if (field.type === "number") {
           const num = Number(value);
           if (Number.isNaN(num)) throw new Error(`${field.label} 必须是数字`);

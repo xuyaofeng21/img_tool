@@ -12,6 +12,7 @@ except Exception:  # pragma: no cover
     webview = None
 
 from .tasks import TaskManager
+from .wrappers import preview_path_info
 
 
 class ApiBridge:
@@ -46,6 +47,18 @@ class ApiBridge:
         except Exception:
             return ""
 
+    def select_file(self) -> str:
+        if self.window is None or webview is None:
+            return ""
+        try:
+            result = self.window.create_file_dialog(webview.OPEN_DIALOG)
+            return result[0] if result else ""
+        except Exception:
+            return ""
+
+    def preview_path(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return preview_path_info(payload)
+
     def open_path(self, path: str) -> dict[str, Any]:
         try:
             if not path or not str(path).strip():
@@ -64,4 +77,3 @@ class ApiBridge:
             return {"ok": True}
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
-
