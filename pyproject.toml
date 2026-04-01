@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "img-tool"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "imagehash>=4.3.2",
+    "numpy>=2.2.0",
+    "opencv-python>=4.10.0.84",
+    "pillow>=11.0.0",
+    "pyinstaller>=6.12.0",
+    "pywebview>=5.4",
+    "tqdm>=4.67.1",
+]
+
+[tool.setuptools]
+packages = ["app"]
