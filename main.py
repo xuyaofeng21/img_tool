@@ -22,7 +22,7 @@ def _resolve_base_dir() -> Path:
 
 
 def _resolve_ui_file() -> Path:
-    ui_file = _resolve_base_dir() / "ui" / "index.html"
+    ui_file = _resolve_base_dir() / "ui" / "new.html"
     if not ui_file.exists():
         raise FileNotFoundError(f"未找到前端页面: {ui_file}")
     return ui_file
@@ -42,9 +42,11 @@ def main() -> None:
         title="个人图片批量处理工具箱",
         url=ui_file.as_uri(),
         js_api=bridge,
-        width=1380,
-        height=900,
-        min_size=(1160, 760),
+        width=1200,
+        height=700,
+        min_size=(900, 600),
+        resizable=True,
+      
     )
     bridge.set_window(window)
     webview.start(debug=False)

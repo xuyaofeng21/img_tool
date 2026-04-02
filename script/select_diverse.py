@@ -7,12 +7,17 @@ import imagehash
 from PIL import Image
 
 
-def compute_phash(img_path):
-    """计算图片的感知哈希"""
+def compute_phash(img_path, hash_cache):
+    """计算图片的感知哈希（带缓存）"""
+    if img_path in hash_cache:
+        return hash_cache[img_path]
     try:
-        return imagehash.phash(Image.open(img_path))
+        h = imagehash.phash(Image.open(img_path))
+        hash_cache[img_path] = h
+        return h
     except Exception as e:
         print(f"  [WARN] 无法处理 {img_path}: {e}")
+        hash_cache[img_path] = None
         return None
 
 
@@ -47,11 +52,12 @@ def select_diverse_images(input_dir, output_dir, select_ratio=0.1, hamming_thres
     target_count = max(1, int(total * select_ratio))
     print(f"按 {select_ratio*100:.0f}% 比例计算，目标精选 {target_count} 张")
 
-    # Step 1: 计算所有图片的 pHash
+    # Step 1: 计算所有图片的 pHash（带缓存）
     print("Step 1: 计算所有图片的感知哈希...")
+    hash_cache = {}
     hashes = []
     for i, f in enumerate(png_files):
-        h = compute_phash(f)
+        h = compute_phash(f, hash_cache)
         hashes.append(h)
         if (i + 1) % 500 == 0:
             print(f"  已处理 {i + 1}/{total}")
@@ -99,6 +105,8 @@ def select_diverse_images(input_dir, output_dir, select_ratio=0.1, hamming_thres
         slot_size = len(remaining_files) / n_slots if n_slots > 0 else len(remaining_files)
 
         supplement = []
+        supplement_hashes = []  # 缓存已选补充图片的哈希
+
         for slot in range(n_slots):
             start_idx = int(slot * slot_size)
             end_idx = int((slot + 1) * slot_size)
@@ -109,17 +117,19 @@ def select_diverse_images(input_dir, output_dir, select_ratio=0.1, hamming_thres
             # 在槽内选择与所有已选图片差异最大的
             best_file = None
             best_min_dist = -1
+            all_candidate_hashes = selected_hashes + supplement_hashes
             for rf in slot_files:
-                rh = compute_phash(rf)
+                rh = compute_phash(rf, hash_cache)
                 if rh is None:
                     continue
-                min_dist = min(hamming_distance(rh, sh) for sh in selected_hashes + [compute_phash(sf) for sf in supplement] if compute_phash(sf) is not None)
+                min_dist = min(hamming_distance(rh, sh) for sh in all_candidate_hashes)
                 if min_dist > best_min_dist:
                     best_min_dist = min_dist
                     best_file = rf
 
             if best_file:
                 supplement.append(best_file)
+                supplement_hashes.append(hash_cache[best_file])
 
         final_files = selected_files + supplement
 

@@ -163,6 +163,22 @@ def _resolve_preview_target(payload: dict[str, Any]) -> Path:
     if not isinstance(payload, dict):
         raise ValueError("payload 必须是对象")
 
+    # 检查是否是 files 模式（多个文件用分号分隔）
+    paths_data = payload.get("paths", {})
+    input_mode = paths_data.get("input_mode", "")
+    input_path = paths_data.get("input_path", "")
+
+    # 如果是 files 模式且有多个文件路径，取第一个文件的目录作为预览根目录
+    if input_mode == "files" and input_path:
+        # input_path 可能是分号分隔的多个文件路径
+        first_file = input_path.split(";")[0].strip()
+        if first_file:
+            resolved = _resolve_existing_path(first_file)
+            if resolved is not None and resolved.exists():
+                if resolved.is_file():
+                    return resolved.parent
+                return resolved
+
     candidates: list[Any] = []
     for key in ("path", "file", "input_path", "input_dir", "source_path", "source_dir", "json_dir", "image_dir", "output_dir"):
         if key in payload:

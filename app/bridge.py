@@ -56,6 +56,25 @@ class ApiBridge:
         except Exception:
             return ""
 
+    def select_files(self) -> str:
+        """选择多个文件，返回分号分隔的路径字符串"""
+        if self.window is None or webview is None:
+            return ""
+        try:
+            result = self.window.create_file_dialog(
+                webview.OPEN_DIALOG,
+                file_types=(
+                    "Images (*.png;*.jpg;*.jpeg;*.bmp;*.gif;*.webp;*.tiff;*.tif;*.ico)\0*.png;*.jpg;*.jpeg;*.bmp;*.gif;*.webp;*.tiff;*.tif;*.ico\0"
+                    "All Files (*.*)\0*.*\0"
+                )
+            )
+            if not result:
+                return ""
+            # 返回分号分隔的多个文件路径
+            return ";".join(result)
+        except Exception:
+            return ""
+
     def preview_path(self, payload: dict[str, Any]) -> dict[str, Any]:
         return preview_path_info(payload)
 

@@ -1,4 +1,4 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8" />
@@ -9,24 +9,37 @@
       --bg-a: #f4f8ff;
       --bg-b: #edf7f1;
       --bg-c: #f8f4ff;
-      --glass: rgba(255, 255, 255, 0.64);
-      --glass-strong: rgba(255, 255, 255, 0.8);
-      --line: rgba(255, 255, 255, 0.82);
+      --glass: rgba(255, 255, 255, 0.58);
+      --glass-strong: rgba(255, 255, 255, 0.85);
+      --line: rgba(255, 255, 255, 0.78);
       --text: #1b2437;
       --muted: #4a5875;
-      --brand: #3370ff;
-      --brand-2: #245bf3;
+      --brand: #4a8cff;
+      --brand-2: #3a7be8;
+      --brand-glow: rgba(74, 140, 255, 0.18);
       --success: #00b578;
       --warn: #ffb020;
       --danger: #f54a45;
-      --shadow: 0 18px 50px rgba(34, 69, 122, 0.12);
-      --shadow-soft: 0 10px 24px rgba(34, 69, 122, 0.08);
-      --radius-xl: 24px;
-      --radius-lg: 18px;
-      --radius-md: 14px;
+      --shadow: 0 18px 50px rgba(34, 69, 122, 0.10);
+      --shadow-soft: 0 10px 24px rgba(34, 69, 122, 0.06);
+      --shadow-hover: 0 22px 48px rgba(74, 140, 255, 0.15);
+      --radius-xl: 26px;
+      --radius-lg: 20px;
+      --radius-md: 15px;
+      --transition-fast: 0.15s ease;
+      --transition-med: 0.22s ease;
+      --sidebar-width: 220px;
+      --sidebar-collapsed: 56px;
     }
 
     * { box-sizing: border-box; }
+
+    /* 自定义滚动条样式 */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb { background: rgba(74, 140, 255, 0.25); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(74, 140, 255, 0.45); }
+    * { scrollbar-width: thin; scrollbar-color: rgba(74, 140, 255, 0.25) transparent; }
     html, body {
       margin: 0;
       width: 100%;
@@ -34,10 +47,10 @@
       color: var(--text);
       font-family: "HarmonyOS Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
       background:
-        radial-gradient(circle at 10% 10%, rgba(51, 112, 255, 0.16), transparent 28%),
-        radial-gradient(circle at 85% 18%, rgba(0, 181, 120, 0.12), transparent 25%),
-        radial-gradient(circle at 40% 88%, rgba(245, 74, 69, 0.08), transparent 24%),
-        linear-gradient(135deg, var(--bg-a), var(--bg-b) 55%, var(--bg-c));
+        radial-gradient(circle at 12% 8%, rgba(74, 140, 255, 0.14), transparent 30%),
+        radial-gradient(circle at 88% 15%, rgba(0, 181, 120, 0.10), transparent 26%),
+        radial-gradient(circle at 42% 90%, rgba(245, 74, 69, 0.06), transparent 22%),
+        linear-gradient(138deg, var(--bg-a) 0%, var(--bg-b) 55%, var(--bg-c) 100%);
       overflow: hidden;
     }
 
@@ -46,26 +59,26 @@
       content: "";
       position: fixed;
       border-radius: 50%;
-      filter: blur(50px);
+      filter: blur(55px);
       pointer-events: none;
-      opacity: 0.45;
+      opacity: 0.40;
       z-index: 0;
     }
 
     body::before {
-      width: 320px;
-      height: 320px;
-      left: -90px;
-      top: 90px;
-      background: rgba(51, 112, 255, 0.2);
+      width: 340px;
+      height: 340px;
+      left: -100px;
+      top: 80px;
+      background: radial-gradient(circle, rgba(74, 140, 255, 0.22) 0%, transparent 70%);
     }
 
     body::after {
-      width: 380px;
-      height: 380px;
-      right: -120px;
-      bottom: -120px;
-      background: rgba(0, 181, 120, 0.16);
+      width: 400px;
+      height: 400px;
+      right: -130px;
+      bottom: -130px;
+      background: radial-gradient(circle, rgba(0, 181, 120, 0.18) 0%, transparent 70%);
     }
 
     .shell {
@@ -73,9 +86,14 @@
       z-index: 1;
       height: 100vh;
       display: grid;
-      grid-template-columns: 280px minmax(0, 1fr);
+      grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
       gap: 16px;
       padding: 18px;
+      transition: grid-template-columns var(--transition-med);
+    }
+
+    .shell.sidebar-collapsed {
+      grid-template-columns: var(--sidebar-collapsed) minmax(0, 1fr);
     }
 
     .sidebar,
@@ -85,109 +103,185 @@
     .result-card {
       background: var(--glass);
       border: 1px solid var(--line);
-      box-shadow: var(--shadow), inset 0 0 0 1px rgba(17, 24, 39, 0.04);
-      backdrop-filter: blur(18px) saturate(145%);
-      -webkit-backdrop-filter: blur(18px) saturate(145%);
+      box-shadow: var(--shadow), inset 0 0 0 1px rgba(255, 255, 255, 0.6);
+      backdrop-filter: blur(20px) saturate(160%);
+      -webkit-backdrop-filter: blur(20px) saturate(160%);
     }
 
     .sidebar {
       border-radius: var(--radius-xl);
-      padding: 18px;
+      padding: 12px;
       display: flex;
       flex-direction: column;
-      gap: 16px;
+      gap: 10px;
       min-height: 0;
+      overflow: visible;
+      max-height: 100vh;
+      transition: padding var(--transition-med);
+      position: relative;
     }
+
+    /* 侧边栏折叠按钮 */
+    .sidebar-toggle {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 6px;
+      cursor: pointer;
+      color: var(--muted);
+      transition: color var(--transition-fast), background var(--transition-fast);
+      border-radius: var(--radius-md);
+      background: rgba(255, 255, 255, 0.5);
+      border: 1px solid rgba(74, 140, 255, 0.1);
+      flex-shrink: 0;
+    }
+    .sidebar-toggle:hover { color: var(--brand); background: rgba(255, 255, 255, 0.8); }
+    .sidebar-toggle-icon {
+      width: 28px;
+      height: 28px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 8px;
+      transition: transform var(--transition-med);
+    }
+    .sidebar-collapsed .sidebar-toggle-icon { transform: rotate(180deg); }
+    .sidebar-toggle-icon svg { width: 14px; height: 14px; }
 
     .brand {
-      display: grid;
-      gap: 8px;
-      padding-bottom: 4px;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.55);
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.50);
+      overflow: hidden;
+      transition: opacity var(--transition-med), max-height var(--transition-med), padding var(--transition-med), margin var(--transition-med);
+      max-height: 80px;
     }
-    .brand-title { font-size: 20px; font-weight: 800; letter-spacing: 0.4px; line-height: 1.2; }
-    .brand-subtitle { color: var(--muted); font-size: 12px; line-height: 1.5; }
+    .sidebar-collapsed .brand { opacity: 0; max-height: 0; padding: 0; margin: 0; border: none; pointer-events: none; }
+    .brand-title { font-size: 16px; font-weight: 800; letter-spacing: 0.3px; line-height: 1.2; white-space: nowrap; }
+    .brand-subtitle { color: var(--muted); font-size: 10px; line-height: 1.4; }
 
-    .nav { display: grid; gap: 10px; }
+    /* 导航区域 */
+    .nav-wrapper {
+      flex: 1;
+      overflow-y: auto;
+      overflow-x: hidden;
+      min-height: 0;
+      padding-right: 2px;
+      margin-right: -2px;
+    }
+    .nav { display: flex; flex-direction: column; gap: 6px; }
+
     .nav-btn {
-      border: 1px solid rgba(51, 112, 255, 0.14);
-      background: rgba(255, 255, 255, 0.7);
+      border: 1px solid rgba(74, 140, 255, 0.12);
+      background: rgba(255, 255, 255, 0.65);
       color: var(--text);
-      border-radius: 16px;
-      padding: 12px 14px;
+      border-radius: var(--radius-md);
+      padding: 8px 10px;
       text-align: left;
       cursor: pointer;
-      transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease, background 0.18s ease;
+      transition: transform var(--transition-fast), box-shadow var(--transition-med), border-color var(--transition-med), background var(--transition-med), padding var(--transition-med);
       display: flex;
-      justify-content: space-between;
       align-items: center;
-      gap: 12px;
+      gap: 10px;
+      position: relative;
+      overflow: hidden;
+      flex-shrink: 0;
     }
-    .nav-btn:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 12px 26px rgba(51, 112, 255, 0.12); border-color: rgba(51, 112, 255, 0.28); }
-    .nav-btn.active { background: linear-gradient(135deg, rgba(51, 112, 255, 0.16), rgba(51, 112, 255, 0.08)); border-color: rgba(51, 112, 255, 0.36); box-shadow: 0 14px 28px rgba(51, 112, 255, 0.16); }
-    .nav-btn:disabled,
-    .btn:disabled,
-    input:disabled { cursor: not-allowed; opacity: 0.62; }
-    .nav-main { display: grid; gap: 4px; }
-    .nav-title { font-size: 14px; font-weight: 700; line-height: 1.25; }
-    .nav-desc { font-size: 12px; color: var(--muted); line-height: 1.4; }
+    .nav-btn:hover:not(:disabled) {
+      transform: translateY(-1px);
+      box-shadow: var(--shadow-hover);
+      border-color: rgba(74, 140, 255, 0.32);
+      background: rgba(255, 255, 255, 0.82);
+    }
+    .nav-btn.active {
+      background: linear-gradient(135deg, rgba(74, 140, 255, 0.14), rgba(74, 140, 255, 0.06));
+      border-color: rgba(74, 140, 255, 0.40);
+      box-shadow: var(--shadow-hover), inset 0 0 0 1px rgba(74, 140, 255, 0.12);
+    }
+    .nav-btn:active:not(:disabled) { transform: translateY(0) scale(0.98); }
+    .nav-btn:disabled, .btn:disabled, input:disabled { cursor: not-allowed; opacity: 0.62; }
 
-    .chip {
-      display: inline-flex;
+    .nav-icon {
+      font-size: 18px;
+      flex-shrink: 0;
+      width: 24px;
+      text-align: center;
+      transition: width var(--transition-med);
+    }
+
+    .nav-content {
+      flex: 1;
+      min-width: 0;
+      overflow: hidden;
+      transition: opacity var(--transition-med), max-width var(--transition-med);
+      display: flex;
       align-items: center;
-      border-radius: 999px;
-      padding: 6px 10px;
-      font-size: 12px;
-      font-weight: 600;
-      white-space: nowrap;
-      border: 1px solid rgba(51, 112, 255, 0.14);
-      background: rgba(255, 255, 255, 0.72);
-      color: #2553c7;
+      gap: 8px;
     }
+    .sidebar-collapsed .nav-content { opacity: 0; max-width: 0; overflow: hidden; }
+    .sidebar-collapsed .nav-btn { padding: 8px; justify-content: center; }
 
-    .mode-card,
-    .status-card {
-      border-radius: var(--radius-lg);
+    .nav-title { font-size: 12px; font-weight: 700; line-height: 1.2; white-space: nowrap; }
+    .nav-desc { font-size: 10px; color: var(--muted); line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .nav-badge { flex-shrink: 0; font-size: 10px; }
+    .nav-info { flex: 1; min-width: 0; }
+
+    /* 底部固定区域 */
+    .sidebar-footer {
+      flex-shrink: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      overflow: hidden;
+      transition: opacity var(--transition-med), max-height var(--transition-med);
+      max-height: 200px;
+    }
+    .sidebar-collapsed .sidebar-footer { opacity: 0; max-height: 0; min-height: 0; margin: 0; padding: 0; gap: 0; border: none; overflow: hidden; }
+
+    .mode-card, .status-card {
+      border-radius: var(--radius-md);
       background: var(--glass-strong);
       border: 1px solid rgba(255, 255, 255, 0.86);
       box-shadow: var(--shadow-soft);
-      padding: 14px;
+      padding: 10px;
     }
     .section-title {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 10px;
-      margin-bottom: 10px;
-      font-size: 13px;
+      gap: 6px;
+      margin-bottom: 6px;
+      font-size: 11px;
       font-weight: 700;
       letter-spacing: 0.2px;
     }
 
-    .mode-group { display: grid; gap: 8px; }
+    .mode-group { display: grid; gap: 6px; }
     .mode-option {
       display: flex;
-      align-items: center;
-      gap: 10px;
-      padding: 10px 11px;
-      border-radius: 14px;
-      border: 1px solid rgba(51, 112, 255, 0.14);
+      align-items: flex-start;
+      gap: 8px;
+      padding: 8px 10px;
+      border-radius: 12px;
+      border: 1px solid rgba(74, 140, 255, 0.12);
       background: rgba(255, 255, 255, 0.72);
       cursor: pointer;
       transition: border-color 0.18s ease, transform 0.18s ease, background 0.18s ease;
       user-select: none;
     }
-    .mode-option:hover { transform: translateY(-1px); border-color: rgba(51, 112, 255, 0.26); }
-    .mode-option input { margin: 0; }
-    .mode-label { display: grid; gap: 2px; }
-    .mode-label strong { font-size: 13px; line-height: 1.25; }
-    .mode-label span { font-size: 12px; color: var(--muted); line-height: 1.35; }
-    .mode-option.active { border-color: rgba(51, 112, 255, 0.34); background: linear-gradient(135deg, rgba(51, 112, 255, 0.14), rgba(255, 255, 255, 0.86)); box-shadow: 0 14px 26px rgba(51, 112, 255, 0.12); }
+    .mode-option:hover { transform: translateY(-1px); border-color: rgba(74, 140, 255, 0.26); }
+    .mode-option input { margin: 2px 0 0; flex-shrink: 0; }
+    .mode-label { display: grid; gap: 1px; min-width: 0; }
+    .mode-label strong { font-size: 12px; line-height: 1.25; }
+    .mode-label span { font-size: 11px; color: var(--muted); line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    .mode-option.active { border-color: rgba(74, 140, 255, 0.34); background: linear-gradient(135deg, rgba(74, 140, 255, 0.14), rgba(255, 255, 255, 0.86)); box-shadow: 0 8px 20px rgba(74, 140, 255, 0.10); }
 
-    .status-row { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 12px; line-height: 1.45; }
+    .status-row { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 11px; line-height: 1.4; }
     .status-dot {
-      width: 10px;
-      height: 10px;
+      width: 8px;
+      height: 8px;
       border-radius: 50%;
       background: #90a4c7;
       flex: 0 0 auto;
@@ -198,26 +292,34 @@
     .status-dot.fail { background: var(--danger); }
     @keyframes pulse {
       0% { box-shadow: 0 0 0 0 rgba(255, 176, 32, 0.38); }
-      70% { box-shadow: 0 0 0 10px rgba(255, 176, 32, 0); }
+      70% { box-shadow: 0 0 0 8px rgba(255, 176, 32, 0); }
       100% { box-shadow: 0 0 0 0 rgba(255, 176, 32, 0); }
+    }
+
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      padding: 4px 8px;
+      font-size: 11px;
+      font-weight: 600;
+      white-space: nowrap;
+      border: 1px solid rgba(51, 112, 255, 0.14);
+      background: rgba(255, 255, 255, 0.72);
+      color: #2553c7;
     }
 
     .workspace {
       min-width: 0;
       display: flex;
       flex-direction: column;
-      gap: 14px;
+      gap: 12px;
       min-height: 0;
       overflow-y: auto;
       padding-right: 4px;
-      scrollbar-width: thin;
-      scrollbar-color: rgba(51, 112, 255, 0.25) transparent;
     }
 
-    .workspace > section {
-      flex: 0 0 auto;
-      min-width: 0;
-    }
+    .workspace > section { flex: 0 0 auto; min-width: 0; }
 
     .hero,
     .form-card,
@@ -232,276 +334,241 @@
     }
 
     .hero {
-      padding: 18px 20px;
+      padding: 14px 16px;
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 12px;
-    }
-    .hero-main { display: grid; gap: 8px; }
-    .hero-title { margin: 0; font-size: 24px; line-height: 1.2; letter-spacing: 0.2px; }
-    .hero-desc { color: var(--muted); font-size: 13px; line-height: 1.5; }
-    .task-strip {
-      display: flex;
-      align-items: center;
       gap: 10px;
-      flex-wrap: wrap;
-      margin-top: 4px;
     }
+    .hero-main { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 0; }
+    .hero-title { margin: 0; font-size: 20px; line-height: 1.2; letter-spacing: 0.2px; }
+    .hero-desc { color: var(--muted); font-size: 11px; line-height: 1.5; }
+    .task-strip { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
     .task-state-chip {
       border-radius: 999px;
-      padding: 6px 10px;
-      font-size: 12px;
+      padding: 3px 8px;
+      font-size: 10px;
       font-weight: 700;
       border: 1px solid rgba(56, 92, 164, 0.16);
       background: rgba(255, 255, 255, 0.8);
       color: #2b3b58;
     }
-    .task-state-chip.running {
-      color: #8a5b00;
-      border-color: rgba(255, 176, 32, 0.35);
-      background: rgba(255, 176, 32, 0.16);
-    }
-    .task-state-chip.success {
-      color: #0b7f59;
-      border-color: rgba(0, 181, 120, 0.32);
-      background: rgba(0, 181, 120, 0.14);
-    }
-    .task-state-chip.fail {
-      color: #a52d29;
-      border-color: rgba(245, 74, 69, 0.32);
-      background: rgba(245, 74, 69, 0.14);
-    }
-    .task-duration {
-      font-size: 12px;
-      color: var(--muted);
-      font-weight: 600;
-    }
-    .hero-tags { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
+    .task-state-chip.running { color: #8a5b00; border-color: rgba(255, 176, 32, 0.35); background: rgba(255, 176, 32, 0.16); }
+    .task-state-chip.success { color: #0b7f59; border-color: rgba(0, 181, 120, 0.32); background: rgba(0, 181, 120, 0.14); }
+    .task-state-chip.fail { color: #a52d29; border-color: rgba(245, 74, 69, 0.32); background: rgba(245, 74, 69, 0.14); }
+    .task-duration { font-size: 11px; color: var(--muted); font-weight: 600; }
+    .hero-tags { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 6px; }
 
-    .form-card,
-    .preview-card,
-    .log-card,
-    .result-card {
-      padding: 18px;
-      min-height: 0;
-    }
+    .form-card, .preview-card, .log-card, .result-card { padding: 14px; min-height: 0; }
 
-    .form-grid { display: grid; gap: 16px; }
-    .form-section { display: grid; gap: 12px; }
-    .form-section-head {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-      padding-bottom: 4px;
-    }
-    .form-section-head h2 { margin: 0; font-size: 15px; line-height: 1.3; }
-    .form-section-head p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.45; }
-    .field-grid { display: grid; gap: 12px; }
+    .form-grid { display: grid; gap: 12px; }
+    .form-section { display: grid; gap: 8px; }
+    .form-section-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    .form-section-head h2 { margin: 0; font-size: 13px; line-height: 1.3; }
+    .form-section-head p { margin: 0; color: var(--muted); font-size: 10px; line-height: 1.4; }
+    .field-grid { display: grid; gap: 8px; }
 
-    .field-row {
-      display: grid;
-      grid-template-columns: 160px minmax(0, 1fr) auto;
-      gap: 10px;
-      align-items: center;
-    }
-    .field-row.param { grid-template-columns: 160px 260px minmax(0, 1fr); }
-    .field-label { display: grid; gap: 3px; min-width: 0; }
-    .field-label strong { font-size: 13px; font-weight: 700; }
-    .field-label span { font-size: 12px; color: var(--muted); line-height: 1.4; }
+    .field-row { display: grid; grid-template-columns: 120px minmax(0, 1fr) auto; gap: 8px; align-items: center; }
+    .field-row.param { grid-template-columns: 120px 180px minmax(0, 1fr); }
+    .field-label { display: grid; gap: 2px; min-width: 0; }
+    .field-label strong { font-size: 11px; font-weight: 700; }
+    .field-label span { font-size: 10px; color: var(--muted); line-height: 1.4; }
 
-    .input,
-    .select {
+    .input, .select {
       width: 100%;
       border: 1px solid rgba(56, 92, 164, 0.18);
       background: rgba(255, 255, 255, 0.84);
       color: var(--text);
-      border-radius: 14px;
-      padding: 11px 12px;
+      border-radius: 10px;
+      padding: 7px 10px;
       outline: none;
-      font-size: 13px;
-      transition: border-color 0.16s ease, box-shadow 0.16s ease, transform 0.16s ease;
+      font-size: 11px;
+      transition: border-color 0.16s ease, box-shadow 0.16s ease;
       min-width: 0;
     }
-    .input:focus,
-    .select:focus { border-color: rgba(51, 112, 255, 0.6); box-shadow: 0 0 0 4px rgba(51, 112, 255, 0.11); }
+    .input:focus, .select:focus { border-color: rgba(74, 140, 255, 0.6); box-shadow: 0 0 0 3px rgba(74, 140, 255, 0.10); }
     .input::placeholder { color: #6b7894; }
 
-    .action-row {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      flex-wrap: wrap;
-      padding-top: 2px;
-    }
+    .action-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
     .btn {
       border: none;
-      border-radius: 14px;
-      padding: 11px 14px;
-      font-size: 13px;
+      border-radius: 10px;
+      padding: 8px 12px;
+      font-size: 11px;
       font-weight: 600;
       cursor: pointer;
       transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease, opacity 0.18s ease;
       white-space: nowrap;
     }
     .btn:hover:not(:disabled) { transform: translateY(-1px); }
-    .btn-primary { background: linear-gradient(135deg, var(--brand), var(--brand-2)); color: #fff; box-shadow: 0 14px 26px rgba(51, 112, 255, 0.24); }
-    .btn-primary:hover:not(:disabled) { box-shadow: 0 16px 32px rgba(51, 112, 255, 0.28); }
-    .btn-secondary { background: rgba(46, 84, 152, 0.09); color: #24498e; border: 1px solid rgba(46, 84, 152, 0.08); }
-    .btn-ghost { background: rgba(255, 255, 255, 0.72); color: var(--text); border: 1px solid rgba(56, 92, 164, 0.12); }
-    .helper { color: var(--muted); font-size: 12px; line-height: 1.45; }
+    .btn:active:not(:disabled) { transform: translateY(0) scale(0.98); }
+    .btn-primary { background: linear-gradient(135deg, var(--brand), var(--brand-2)); color: #fff; box-shadow: 0 10px 20px rgba(74, 140, 255, 0.22); }
+    .btn-primary:hover:not(:disabled) { box-shadow: 0 14px 28px rgba(74, 140, 255, 0.26); }
+    .btn-secondary { background: rgba(74, 140, 255, 0.08); color: var(--brand); border: 1px solid rgba(74, 140, 255, 0.12); }
+    .btn-secondary:hover:not(:disabled) { background: rgba(74, 140, 255, 0.12); }
+    .btn-ghost { background: rgba(255, 255, 255, 0.75); color: var(--text); border: 1px solid rgba(56, 92, 164, 0.10); box-shadow: var(--shadow-soft); }
+    .btn-ghost:hover:not(:disabled) { background: rgba(255, 255, 255, 0.92); box-shadow: var(--shadow); }
+    .helper { color: var(--muted); font-size: 10px; line-height: 1.4; }
     .divider { height: 1px; background: rgba(255, 255, 255, 0.72); margin: 2px 0; }
 
-    .preview-card { display: grid; gap: 12px; min-height: 0; }
-    .preview-head {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 10px;
-      flex-wrap: wrap;
-    }
-    .preview-head h2 { margin: 0; font-size: 15px; }
-    .preview-summary { color: var(--muted); font-size: 12px; line-height: 1.45; }
-    .preview-grid {
-      display: grid;
-      gap: 12px;
-    }
+    .preview-card { display: grid; gap: 10px; min-height: 0; }
+    .preview-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+    .preview-head h2 { margin: 0; font-size: 13px; }
+    .preview-summary { color: var(--muted); font-size: 10px; line-height: 1.4; }
+    .preview-grid { display: grid; gap: 8px; }
     .preview-block {
-      border-radius: 18px;
+      border-radius: 14px;
       background: rgba(255, 255, 255, 0.76);
       border: 1px solid rgba(56, 92, 164, 0.12);
-      padding: 14px;
+      padding: 10px;
       min-width: 0;
       display: grid;
-      gap: 10px;
+      gap: 6px;
     }
-    .preview-block-head {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 10px;
-      flex-wrap: wrap;
-    }
-    .preview-block-title { font-size: 13px; font-weight: 800; }
-    .preview-counts { display: flex; flex-wrap: wrap; gap: 8px; }
+    .preview-block-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+    .preview-block-title { font-size: 11px; font-weight: 800; }
+    .preview-counts { display: flex; flex-wrap: wrap; gap: 4px; }
     .preview-count-chip {
       border-radius: 999px;
-      padding: 5px 9px;
-      background: rgba(51, 112, 255, 0.08);
-      border: 1px solid rgba(51, 112, 255, 0.18);
-      color: #2553c7;
-      font-size: 12px;
+      padding: 3px 6px;
+      background: rgba(74, 140, 255, 0.08);
+      border: 1px solid rgba(74, 140, 255, 0.14);
+      color: var(--brand);
+      font-size: 10px;
       font-weight: 700;
     }
-    .preview-samples {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-    }
+    .preview-samples { display: flex; flex-wrap: wrap; gap: 4px; }
     .preview-sample {
       border-radius: 999px;
-      padding: 6px 10px;
-      background: rgba(15, 20, 31, 0.06);
+      padding: 3px 6px;
+      background: rgba(15, 20, 31, 0.05);
       color: var(--text);
-      font-size: 12px;
-      border: 1px solid rgba(56, 92, 164, 0.1);
+      font-size: 10px;
+      border: 1px solid rgba(56, 92, 164, 0.08);
       max-width: 100%;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
     }
     .preview-empty {
-      border-radius: 16px;
-      padding: 14px;
+      border-radius: var(--radius-md);
+      padding: 10px;
       color: var(--muted);
-      background: rgba(255, 255, 255, 0.7);
-      border: 1px dashed rgba(56, 92, 164, 0.16);
-      font-size: 12px;
+      background: rgba(255, 255, 255, 0.68);
+      border: 1px dashed rgba(74, 140, 255, 0.14);
+      font-size: 10px;
       line-height: 1.5;
     }
 
-    .log-card { display: grid; gap: 12px; min-height: 0; }
-    .log-head,
-    .result-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
-    .log-head h2,
-    .result-head h2 { margin: 0; font-size: 15px; }
-    .log-box {
-      background: rgba(15, 20, 31, 0.94);
-      border: 1px solid rgba(255, 255, 255, 0.08);
-      border-radius: 18px;
-      padding: 14px;
-      min-height: 260px;
-      max-height: 100%;
-      overflow: auto;
-      color: #dde6f3;
-      font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
-      font-size: 12px;
-      line-height: 1.6;
-      word-break: break-word;
-      white-space: pre-wrap;
-      scrollbar-width: thin;
-      scrollbar-color: rgba(255, 255, 255, 0.22) transparent;
-    }
-    .log-line { margin: 0 0 6px; padding-left: 2px; }
+    .preview-toggle { display: none; padding-bottom: 2px; }
+    .preview-toggle.has-data { display: block; }
+    .preview-toggle-bar { display: flex; align-items: center; gap: 4px; cursor: pointer; user-select: none; color: var(--muted); font-size: 10px; transition: color var(--transition-fast); }
+    .preview-toggle-bar:hover { color: var(--brand); }
+    .preview-toggle-arrow { transition: transform 0.22s ease; display: inline-flex; }
+    .preview-toggle-arrow.expanded { transform: rotate(180deg); }
+    .preview-grid-wrapper { overflow: hidden; max-height: 0; opacity: 0; transition: max-height 0.25s ease, opacity 0.2s ease; }
+    .preview-grid-wrapper.expanded { max-height: 400px; opacity: 1; }
+
+    .log-card { display: grid; gap: 10px; min-height: 0; }
+    .log-head, .result-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+    .log-head h2, .result-head h2 { margin: 0; font-size: 13px; }
+    .log-line { margin: 0 0 3px; padding-left: 2px; }
     .log-info { color: #dde6f3; }
     .log-warn { color: #ffd28a; }
     .log-error { color: #ff9a9a; }
 
-    .result-card { display: grid; gap: 14px; }
-    .metric-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+    .result-card { display: grid; gap: 10px; }
+    .metric-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
     .metric {
-      border-radius: 18px;
+      border-radius: 14px;
       background: rgba(255, 255, 255, 0.76);
       border: 1px solid rgba(56, 92, 164, 0.12);
-      padding: 14px;
+      padding: 10px;
       min-width: 0;
     }
-    .metric .k { font-size: 12px; color: var(--muted); line-height: 1.4; }
-    .metric .v { margin-top: 8px; font-size: 22px; font-weight: 800; line-height: 1.1; word-break: break-word; }
-    .result-paths { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .metric .k { font-size: 10px; color: var(--muted); line-height: 1.4; }
+    .metric .v { margin-top: 4px; font-size: 18px; font-weight: 800; line-height: 1.1; word-break: break-word; }
+    .result-paths { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
     .result-path {
       background: rgba(255, 255, 255, 0.74);
       border: 1px solid rgba(56, 92, 164, 0.12);
-      border-radius: 18px;
-      padding: 14px;
+      border-radius: 14px;
+      padding: 10px;
       min-width: 0;
     }
-    .result-path .k { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
-    .result-path .v { font-size: 12px; line-height: 1.6; word-break: break-all; }
+    .result-path .k { font-size: 10px; color: var(--muted); margin-bottom: 4px; }
+    .result-path .v { font-size: 10px; line-height: 1.5; word-break: break-all; }
     .result-footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
-    .footer-note { color: var(--muted); font-size: 12px; line-height: 1.45; }
+    .footer-note { color: var(--muted); font-size: 10px; line-height: 1.4; }
 
-    .is-running .nav-btn,
-    .is-running .mode-option,
-    .is-running .input,
-    .is-running .select { pointer-events: none; }
+    .is-running .nav-btn, .is-running .mode-option, .is-running .input, .is-running .select { pointer-events: none; }
 
     @media (max-width: 1180px) {
       html, body { overflow: auto; }
       .shell { height: auto; min-height: 100vh; grid-template-columns: 1fr; }
-      .sidebar { position: relative; }
+      .sidebar { position: relative; max-height: none; overflow: visible; }
       .workspace { min-height: auto; }
       .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .result-paths { grid-template-columns: 1fr; }
+      /* 在小屏幕上保持侧边栏展开状态 */
+      .sidebar-collapsed .brand { opacity: 1; max-height: 80px; padding-bottom: 8px; margin-bottom: 0; border-bottom-width: 1px; }
+      .sidebar-collapsed .sidebar-footer { opacity: 1; max-height: 200px; gap: 8px; }
+      .sidebar-collapsed .nav-content { opacity: 1; max-width: none; }
+      .sidebar-collapsed .nav-btn { padding: 8px 10px; justify-content: flex-start; }
     }
 
     @media (max-width: 760px) {
       .shell { padding: 12px; gap: 12px; }
-      .sidebar,
-      .hero,
-      .form-card,
-      .log-card,
-      .result-card { border-radius: 20px; }
-      .hero { padding: 16px; }
-      .hero-title { font-size: 20px; }
-      .sidebar { padding: 14px; }
-      .field-row,
-      .field-row.param { grid-template-columns: 1fr; }
-      .nav-btn { padding: 11px 12px; }
+      .sidebar, .hero, .form-card, .log-card, .result-card { border-radius: 20px; }
+      .hero { padding: 14px; }
+      .hero-title { font-size: 18px; }
+      .field-row, .field-row.param { grid-template-columns: 1fr; }
       .metric-grid { grid-template-columns: 1fr; }
       .action-row { display: grid; grid-template-columns: 1fr; }
       .btn { width: 100%; }
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg-a: #1a1f2e;
+        --bg-b: #151b28;
+        --bg-c: #1e1a2e;
+        --glass: rgba(30, 38, 55, 0.72);
+        --glass-strong: rgba(40, 50, 70, 0.85);
+        --line: rgba(255, 255, 255, 0.10);
+        --text: #e8ecf4;
+        --muted: #8b9ab5;
+        --shadow: 0 18px 50px rgba(0, 0, 0, 0.35);
+        --shadow-soft: 0 10px 24px rgba(0, 0, 0, 0.25);
+        --shadow-hover: 0 22px 48px rgba(74, 140, 255, 0.20);
+      }
+      body { background: linear-gradient(138deg, var(--bg-a) 0%, var(--bg-b) 55%, var(--bg-c) 100%); }
+      body::before { background: radial-gradient(circle, rgba(74, 140, 255, 0.15) 0%, transparent 70%); }
+      body::after { background: radial-gradient(circle, rgba(0, 181, 120, 0.12) 0%, transparent 70%); }
+      .nav-btn { background: rgba(40, 50, 70, 0.70); border-color: rgba(74, 140, 255, 0.15); }
+      .nav-btn:hover:not(:disabled) { background: rgba(50, 62, 85, 0.85); }
+      .nav-btn.active { background: linear-gradient(135deg, rgba(74, 140, 255, 0.20), rgba(74, 140, 255, 0.10)); border-color: rgba(74, 140, 255, 0.40); }
+      .mode-card, .status-card { background: rgba(40, 50, 70, 0.82); border-color: rgba(255, 255, 255, 0.08); }
+      .mode-option { background: rgba(40, 50, 70, 0.65); border-color: rgba(74, 140, 255, 0.15); }
+      .mode-option:hover { background: rgba(50, 62, 85, 0.80); }
+      .mode-option.active { background: linear-gradient(135deg, rgba(74, 140, 255, 0.18), rgba(40, 50, 70, 0.85)); }
+      .input, .select { background: rgba(40, 50, 70, 0.80); border-color: rgba(74, 140, 255, 0.15); color: var(--text); }
+      .input:focus, .select:focus { border-color: rgba(74, 140, 255, 0.7); box-shadow: 0 0 0 3px rgba(74, 140, 255, 0.12); }
+      .btn-ghost { background: rgba(40, 50, 70, 0.75); border-color: rgba(74, 140, 255, 0.12); color: var(--text); }
+      .btn-ghost:hover:not(:disabled) { background: rgba(50, 62, 85, 0.90); }
+      .preview-block { background: rgba(40, 50, 70, 0.68); border-color: rgba(74, 140, 255, 0.10); }
+      .preview-sample { background: rgba(255, 255, 255, 0.06); color: var(--text); border-color: rgba(74, 140, 255, 0.10); }
+      .preview-empty { background: rgba(40, 50, 70, 0.60); border-color: rgba(74, 140, 255, 0.12); color: var(--muted); }
+      .log-box { background: rgba(10, 14, 22, 0.95); border-color: rgba(255, 255, 255, 0.06); }
+      .metric, .result-path { background: rgba(40, 50, 70, 0.68); border-color: rgba(74, 140, 255, 0.10); }
+      .divider { background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.08), transparent); }
+      .modal-card { background: rgba(40, 50, 70, 0.92); border-color: rgba(74, 140, 255, 0.15); }
+      .helper { color: var(--muted); }
+      .task-state-chip { background: rgba(40, 50, 70, 0.80); border-color: rgba(74, 140, 255, 0.12); color: var(--text); }
+      .task-state-chip.running { background: rgba(255, 176, 32, 0.15); border-color: rgba(255, 176, 32, 0.30); color: #ffb020; }
+      .task-state-chip.success { background: rgba(0, 181, 120, 0.15); border-color: rgba(0, 181, 120, 0.28); color: #00b578; }
+      .task-state-chip.fail { background: rgba(245, 74, 69, 0.15); border-color: rgba(245, 74, 69, 0.28); color: #f54a45; }
+      .sidebar-toggle-icon { background: rgba(40, 50, 70, 0.80); border-color: rgba(74, 140, 255, 0.15); }
     }
 
     @media (prefers-reduced-motion: reduce) {
@@ -522,7 +589,7 @@
     }
     .modal-backdrop.hidden { display: none; }
     .modal-card {
-      width: min(520px, 100%);
+      width: min(480px, 100%);
       border-radius: 20px;
       border: 1px solid rgba(255, 255, 255, 0.86);
       background: rgba(255, 255, 255, 0.82);
@@ -533,56 +600,66 @@
     }
     .modal-title { margin: 0; font-size: 18px; font-weight: 800; }
     .modal-desc { margin: 0; font-size: 13px; line-height: 1.6; color: var(--muted); }
-    .modal-actions {
-      display: flex;
-      justify-content: flex-end;
-      gap: 10px;
-      margin-top: 4px;
-    }
+    .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 4px; }
   </style>
 </head>
 <body>
   <div class="shell" id="shellRoot">
-    <aside class="sidebar">
-      <div class="brand">
-        <div class="brand-title">个人图片批量处理工具箱</div>
-        <div class="brand-subtitle">离线运行 · 免登录 · pywebview 桌面工具。左侧切任务，右侧做操作。</div>
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-toggle" id="sidebarToggle" title="收起/展开侧边栏">
+        <div class="sidebar-toggle-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="15 18 9 12 15 6"></polyline>
+          </svg>
+        </div>
       </div>
-      <nav class="nav" id="taskNav" aria-label="功能导航"></nav>
-      <section class="mode-card">
-        <div class="section-title">
-          <span>执行模式</span>
-          <span class="chip" id="modeChip">默认：安全复制</span>
-        </div>
-        <div class="mode-group" id="modeGroup">
-          <label class="mode-option active">
-            <input type="radio" name="mode" value="safe_copy" checked />
-            <div class="mode-label">
-              <strong>安全复制</strong>
-              <span>默认模式，不修改原始文件，输出到指定目录。</span>
-            </div>
-          </label>
-          <label class="mode-option">
-            <input type="radio" name="mode" value="in_place" />
-            <div class="mode-label">
-              <strong>原地修改</strong>
-              <span>执行前强制备份，适合要直接覆盖原目录的场景。</span>
-            </div>
-          </label>
-        </div>
-      </section>
-      <section class="status-card">
-        <div class="section-title">
-          <span>运行状态</span>
-          <span class="chip" id="statusBadge">Idle</span>
-        </div>
-        <div class="status-row">
-          <span id="statusDot" class="status-dot" aria-hidden="true"></span>
-          <span id="statusText">已就绪，等待你选择功能并填写参数。</span>
-        </div>
-      </section>
-      <div class="helper">说明：前端只做本地桌面交互，不会访问网络；所有执行都通过 `pywebview` 调用 Python 后端。</div>
+
+      <div class="brand">
+        <div class="brand-title">图片工具箱</div>
+        <div class="brand-subtitle">离线 · 免登录 · 本地处理</div>
+      </div>
+
+      <div class="nav-wrapper">
+        <nav class="nav" id="taskNav" aria-label="功能导航"></nav>
+      </div>
+
+      <div class="sidebar-footer">
+        <section class="mode-card">
+          <div class="section-title">
+            <span>执行模式</span>
+            <span class="chip" id="modeChip">安全</span>
+          </div>
+          <div class="mode-group" id="modeGroup">
+            <label class="mode-option active">
+              <input type="radio" name="mode" value="safe_copy" checked />
+              <div class="mode-label">
+                <strong>安全复制</strong>
+                <span>不修改原始文件，输出到指定目录。</span>
+              </div>
+            </label>
+            <label class="mode-option">
+              <input type="radio" name="mode" value="in_place" />
+              <div class="mode-label">
+                <strong>原地修改</strong>
+                <span>执行前强制备份，适合直接覆盖原目录。</span>
+              </div>
+            </label>
+          </div>
+        </section>
+
+        <section class="status-card">
+          <div class="section-title">
+            <span>运行状态</span>
+            <span class="chip" id="statusBadge">Idle</span>
+          </div>
+          <div class="status-row">
+            <span id="statusDot" class="status-dot" aria-hidden="true"></span>
+            <span id="statusText">已就绪，等待选择功能并填写参数。</span>
+          </div>
+        </section>
+      </div>
     </aside>
+
     <main class="workspace" id="workspaceRoot">
       <section class="hero">
         <div class="hero-main">
@@ -593,10 +670,7 @@
             <span class="task-duration" id="taskDuration">耗时 00:00</span>
           </div>
         </div>
-        <div class="hero-tags" id="taskTags">
-          <span class="chip">左侧侧边栏 + 右侧操作区</span>
-          <span class="chip">飞书感 · 液态玻璃</span>
-        </div>
+        <div class="hero-tags" id="taskTags"></div>
       </section>
 
       <section class="form-card">
@@ -605,17 +679,25 @@
         <div class="action-row">
           <button type="button" class="btn btn-primary" id="runBtn">开始执行</button>
           <button type="button" class="btn btn-ghost" id="clearBtn">清空日志</button>
-          <span class="helper" id="modeHint">当前模式：安全复制（默认）</span>
+          <span class="helper" id="modeHint">当前模式：安全复制</span>
         </div>
       </section>
 
       <section class="preview-card">
         <div class="preview-head">
           <h2>路径预览</h2>
-          <div class="preview-summary" id="previewSummary">选择路径后自动展示扩展名统计和样本文件。</div>
+          <div class="preview-summary" id="previewSummary">选择路径后自动展示扩展名统计。</div>
         </div>
-        <div class="preview-grid" id="previewBox">
-          <div class="preview-empty">暂无预览数据。选择路径后会自动统计文件数量并展示前 20 个样本。</div>
+        <div class="preview-toggle" id="previewToggle">
+          <div class="preview-toggle-bar" id="previewToggleBar">
+            <span class="preview-toggle-arrow" id="previewArrow">▾</span>
+            <span class="preview-toggle-label" id="previewToggleLabel">展开详情</span>
+          </div>
+        </div>
+        <div class="preview-grid-wrapper" id="previewGridWrapper">
+          <div class="preview-grid" id="previewBox">
+            <div class="preview-empty">暂无预览数据。选择路径后会自动统计文件数量并展示前 20 个样本。</div>
+          </div>
         </div>
       </section>
 
@@ -637,7 +719,7 @@
           <div class="metric"><div class="k">成功数</div><div class="v" id="metricSuccess">0</div></div>
           <div class="metric"><div class="k">失败数</div><div class="v" id="metricFail">0</div></div>
           <div class="metric"><div class="k">跳过数</div><div class="v" id="metricSkip">0</div></div>
-          <div class="metric"><div class="k">任务状态</div><div class="v" id="metricStatus" style="font-size: 18px;">idle</div></div>
+          <div class="metric"><div class="k">任务状态</div><div class="v" id="metricStatus" style="font-size: 16px;">idle</div></div>
         </div>
 
         <div class="result-paths">
@@ -661,6 +743,7 @@
       </section>
     </main>
   </div>
+
   <div class="modal-backdrop hidden" id="confirmModal" role="dialog" aria-modal="true" aria-labelledby="confirmTitle">
     <div class="modal-card">
       <h3 class="modal-title" id="confirmTitle">确认原地修改</h3>
@@ -671,39 +754,30 @@
       </div>
     </div>
   </div>
+
   <script>
     const TASKS = {
       bgr2rgb: {
         title: "颜色通道转换",
-        subtitle: "RGB -> BGR 批量转换",
-        desc: "调用 `script/bgr2rgb.py` 对图片进行批量颜色通道转换。支持文件夹/单文件输入、双向转换与两种执行模式。",
-        badge: "图像处理",
+        subtitle: "RGB -> BGR 批量",
+        desc: "调用 `bgr2rgb.py` 对图片进行批量颜色通道转换，支持双向转换与两种执行模式。",
+        badge: "图像",
+        icon: "🎨",
         supportsInputMode: true,
-        supportsColorDirection: true,
         paths: [
           { key: "input_dir", label: "输入目录", hint: "待处理图片所在目录", placeholder: "选择包含图片的文件夹", required: true },
           { key: "output_dir", label: "输出目录", hint: "安全复制模式下写入此目录", placeholder: "选择输出目录", required: true, safeOnly: true }
         ],
         params: [
-          {
-            key: "color_direction",
-            label: "转换方向",
-            hint: "可在 RGB -> BGR 与 BGR -> RGB 之间切换",
-            type: "radio",
-            required: true,
-            default: "rgb_to_bgr",
-            options: [
-              { label: "RGB -> BGR", value: "rgb_to_bgr" },
-              { label: "BGR -> RGB", value: "bgr_to_rgb" }
-            ]
-          }
+          { key: "color_direction", label: "转换方向", hint: "RGB -> BGR 或 BGR -> RGB", type: "radio", required: true, default: "rgb_to_bgr", options: [ { label: "RGB -> BGR", value: "rgb_to_bgr" }, { label: "BGR -> RGB", value: "bgr_to_rgb" } ] }
         ]
       },
       rename2: {
         title: "批量重命名",
-        subtitle: "图片 + JSON 前缀重命名",
-        desc: "调用 `script/rename2.py` 为图片及其关联 JSON 文件统一添加前缀，并保持文件配对关系。",
+        subtitle: "图片 + JSON 前缀",
+        desc: "调用 `rename2.py` 为图片及关联 JSON 文件统一添加前缀，保持文件配对关系。",
         badge: "重命名",
+        icon: "📝",
         paths: [
           { key: "source_dir", label: "源目录", hint: "包含图片和 JSON 的文件夹", placeholder: "选择源目录", required: true },
           { key: "target_dir", label: "目标目录", hint: "安全复制模式下的输出目录", placeholder: "选择目标目录", required: true, safeOnly: true }
@@ -715,25 +789,26 @@
       select_diverse: {
         title: "多样性筛图",
         subtitle: "pHash 去重筛选",
-        desc: "调用 `script/select_diverse.py` 从 PNG 图片中按比例或张数筛出更有场景差异的图片。",
+        desc: "调用 `select_diverse.py` 从 PNG 图片中按比例或张数筛出更有场景差异的图片。",
         badge: "筛选",
+        icon: "🔍",
         supportsInputMode: true,
-        supportsTargetCount: true,
         paths: [
           { key: "input_dir", label: "输入目录", hint: "包含 PNG 图片的文件夹", placeholder: "选择输入目录", required: true },
           { key: "output_dir", label: "输出目录", hint: "安全复制模式下写入此目录", placeholder: "选择输出目录", required: true, safeOnly: true }
         ],
         params: [
-          { key: "target_count", label: "筛选张数", hint: "填写后优先于比例；留空则按比例执行", placeholder: "", required: false, type: "number", step: "1", min: "1" },
-          { key: "select_ratio", label: "精选比例", hint: "范围 0.01 - 1.00，未填张数时生效", placeholder: "0.1", required: false, type: "number", step: "0.01", min: "0.01", max: "1", default: 0.1 },
+          { key: "target_count", label: "筛选张数", hint: "填写后优先于比例", placeholder: "", required: false, type: "number", step: "1", min: "1" },
+          { key: "select_ratio", label: "精选比例", hint: "范围 0.01 - 1.00", placeholder: "0.1", required: false, type: "number", step: "0.01", min: "0.01", max: "1", default: 0.1 },
           { key: "hamming_thresh", label: "汉明阈值", hint: "越大越宽松，建议 8 - 15", placeholder: "10", required: true, type: "number", step: "1", min: "0", default: 10 }
         ]
       },
       json_path: {
         title: "JSON 路径修复",
         subtitle: "imagePath 批量修复",
-        desc: "调用 `script/更改json路径.py`，根据同名图片批量修复 JSON 中的 `imagePath` 字段。",
+        desc: "调用 `更改json路径.py`，根据同名图片批量修复 JSON 中的 `imagePath` 字段。",
         badge: "JSON",
+        icon: "📋",
         paths: [
           { key: "json_dir", label: "JSON 目录", hint: "待修复的 JSON 文件夹", placeholder: "选择 JSON 目录", required: true },
           { key: "image_dir", label: "图片目录", hint: "用于匹配文件名的图片目录", placeholder: "选择图片目录", required: true },
@@ -761,6 +836,8 @@
       previewLoading: false,
       previewData: null,
       previewError: "",
+      previewExpanded: false,
+      sidebarCollapsed: false,
       formData: {}
     };
 
@@ -830,6 +907,11 @@
       }
     }
 
+    function toggleSidebar() {
+      state.sidebarCollapsed = !state.sidebarCollapsed;
+      document.getElementById("shellRoot").classList.toggle("sidebar-collapsed", state.sidebarCollapsed);
+    }
+
     function renderNav() {
       const nav = $("taskNav");
       nav.innerHTML = "";
@@ -839,11 +921,14 @@
         btn.className = `nav-btn${state.activeTask === taskKey ? " active" : ""}`;
         btn.disabled = state.running;
         btn.innerHTML = `
-          <div class="nav-main">
-            <div class="nav-title">${escapeHtml(task.title)}</div>
-            <div class="nav-desc">${escapeHtml(task.subtitle)}</div>
+          <span class="nav-icon">${escapeHtml(task.icon || "📄")}</span>
+          <div class="nav-content">
+            <div class="nav-info">
+              <div class="nav-title">${escapeHtml(task.title)}</div>
+              <div class="nav-desc">${escapeHtml(task.subtitle)}</div>
+            </div>
+            <span class="chip nav-badge">${escapeHtml(task.badge)}</span>
           </div>
-          <span class="chip">${escapeHtml(task.badge)}</span>
         `;
         btn.addEventListener("click", () => {
           if (state.running || state.activeTask === taskKey) return;
@@ -860,10 +945,8 @@
         const input = option.querySelector('input[name="mode"]');
         option.classList.toggle("active", input && input.value === state.mode);
       });
-      $("modeChip").textContent = state.mode === "safe_copy" ? "默认：安全复制" : "当前：原地修改";
-      $("modeHint").textContent = state.mode === "safe_copy"
-        ? "当前模式：安全复制，不会修改原始文件。"
-        : "当前模式：原地修改，执行前会自动强制备份。";
+      $("modeChip").textContent = state.mode === "safe_copy" ? "安全" : "原地";
+      $("modeHint").textContent = state.mode === "safe_copy" ? "当前模式：安全复制" : "当前模式：原地修改";
     }
 
     function renderTask() {
@@ -871,22 +954,12 @@
       $("taskTitle").textContent = task.title;
       $("taskDesc").textContent = task.desc;
       const taskState = state.formData[state.activeTask] || {};
-      const chips = [
-        `<span class="chip">${escapeHtml(task.badge)}</span>`,
-        `<span class="chip">${escapeHtml(task.subtitle)}</span>`,
-        `<span class="chip">${state.mode === "safe_copy" ? "安全复制" : "原地修改"}</span>`
-      ];
+      const chips = [];
       if (task.supportsInputMode) {
-        chips.push(`<span class="chip">${taskState.input_mode === "file" ? "单文件输入" : "文件夹输入"}</span>`);
+        chips.push(`<span class="chip">${taskState.input_mode === "file" ? "单文件" : "文件夹"}</span>`);
       }
-      $("taskTags").innerHTML = `
-        ${chips.join("")}
-      `;
-    }
-
-    function isImageTask(taskKey) {
-      const task = TASKS[taskKey];
-      return Boolean(task && task.supportsInputMode);
+      chips.push(`<span class="chip">${state.mode === "safe_copy" ? "安全复制" : "原地修改"}</span>`);
+      $("taskTags").innerHTML = chips.join("");
     }
 
     function getInputMode(taskState) {
@@ -895,28 +968,13 @@
 
     function getPrimaryPathMeta(task, taskState, item) {
       if (!task.supportsInputMode || item.key !== "input_dir") {
-        return {
-          label: item.label,
-          hint: item.hint,
-          placeholder: item.placeholder || "",
-          actionLabel: "选择目录"
-        };
+        return { label: item.label, hint: item.hint, placeholder: item.placeholder || "", actionLabel: "选择目录" };
       }
       const inputMode = getInputMode(taskState);
       if (inputMode === "file") {
-        return {
-          label: "输入文件",
-          hint: "选择单个图片文件进行处理",
-          placeholder: "选择单个图片文件",
-          actionLabel: "选择文件"
-        };
+        return { label: "输入文件", hint: "选择单个图片文件", placeholder: "选择单个图片文件", actionLabel: "选择文件" };
       }
-      return {
-        label: "输入目录",
-        hint: "选择包含图片的文件夹",
-        placeholder: "选择包含图片的文件夹",
-        actionLabel: "选择目录"
-      };
+      return { label: "输入目录", hint: "选择包含图片的文件夹", placeholder: "选择包含图片的文件夹", actionLabel: "选择目录" };
     }
 
     function renderInputModeSection(taskState) {
@@ -925,7 +983,7 @@
           <div class="form-section-head">
             <div>
               <h2>输入模式</h2>
-              <p>仅图像类任务支持文件夹/单文件两种输入方式。</p>
+              <p>图像类任务支持文件夹/单文件两种输入方式。</p>
             </div>
           </div>
           <div class="mode-group">
@@ -940,7 +998,7 @@
               <input type="radio" name="input_mode" value="file" ${getInputMode(taskState) === "file" ? "checked" : ""} ${state.running ? "disabled" : ""} />
               <div class="mode-label">
                 <strong>单文件</strong>
-                <span>对单个图片文件执行，适合快速预览与单样本处理。</span>
+                <span>对单个图片文件执行，适合快速预览。</span>
               </div>
             </label>
           </div>
@@ -968,7 +1026,7 @@
       const current = taskState.params[item.key] ?? item.default ?? "";
       if (item.type === "radio") {
         return `
-          <div class="field-row" style="grid-template-columns: 160px minmax(0, 1fr) auto;">
+          <div class="field-row" style="grid-template-columns: 140px minmax(0, 1fr) auto;">
             <div class="field-label">
               <strong>${escapeHtml(item.label)}</strong>
               <span>${escapeHtml(item.hint)}</span>
@@ -995,7 +1053,7 @@
             <span>${escapeHtml(item.hint)}</span>
           </div>
           <input class="input" type="${numericType}" data-kind="param" data-key="${escapeAttr(item.key)}" placeholder="${escapeAttr(item.placeholder || "")}" value="${escapeAttr(String(current))}" ${item.step !== undefined ? `step="${escapeAttr(item.step)}"` : ""} ${item.min !== undefined ? `min="${escapeAttr(item.min)}"` : ""} ${item.max !== undefined ? `max="${escapeAttr(item.max)}"` : ""} ${state.running ? "disabled" : ""} />
-          <div class="helper">建议值：${escapeHtml(item.hint || "按需填写")}</div>
+          <div class="helper">${escapeHtml(item.hint || "按需填写")}</div>
         </div>
       `;
     }
@@ -1006,7 +1064,7 @@
         <div class="field-row">
           <div class="field-label">
             <strong>备份目录</strong>
-            <span>原地修改时必填，建议选择一个独立目录。</span>
+            <span>原地修改时必填，建议选择独立目录。</span>
           </div>
           <input class="input" type="text" data-kind="backup" data-key="backup_dir" placeholder="选择备份目录" value="${escapeAttr(current)}" ${state.running ? "disabled" : ""} />
           <button type="button" class="btn btn-ghost" data-browse="backup_dir" ${state.running ? "disabled" : ""}>选择目录</button>
@@ -1078,20 +1136,18 @@
     function normalizePreviewCountEntries(counts) {
       if (!counts) return [];
       if (Array.isArray(counts)) {
-        return counts
-          .map((entry) => {
-            if (entry && typeof entry === "object") {
-              const label = entry.ext ?? entry.extension ?? entry.label ?? entry.name ?? entry.key ?? entry.type ?? "";
-              const count = Number(entry.count ?? entry.value ?? entry.total ?? 0);
-              return { label: normalizeTextValue(label), count: Number.isFinite(count) ? count : 0 };
-            }
-            if (Array.isArray(entry) && entry.length >= 2) {
-              const [label, count] = entry;
-              return { label: normalizeTextValue(label), count: Number(count) || 0 };
-            }
-            return null;
-          })
-          .filter(Boolean);
+        return counts.map((entry) => {
+          if (entry && typeof entry === "object") {
+            const label = entry.ext ?? entry.extension ?? entry.label ?? entry.name ?? entry.key ?? entry.type ?? "";
+            const count = Number(entry.count ?? entry.value ?? entry.total ?? 0);
+            return { label: normalizeTextValue(label), count: Number.isFinite(count) ? count : 0 };
+          }
+          if (Array.isArray(entry) && entry.length >= 2) {
+            const [label, count] = entry;
+            return { label: normalizeTextValue(label), count: Number(count) || 0 };
+          }
+          return null;
+        }).filter(Boolean);
       }
       if (typeof counts === "object") {
         return Object.entries(counts).map(([label, count]) => ({ label: normalizeTextValue(label), count: Number(count) || 0 }));
@@ -1102,17 +1158,14 @@
     function normalizePreviewSamples(samples) {
       if (!samples) return [];
       if (Array.isArray(samples)) {
-        return samples
-          .map((entry) => {
-            if (typeof entry === "string") return normalizeTextValue(entry);
-            if (entry && typeof entry === "object") {
-              const value = entry.display ?? entry.path ?? entry.name ?? entry.file ?? entry.text ?? entry.label ?? "";
-              return normalizeTextValue(value);
-            }
-            return normalizeTextValue(entry);
-          })
-          .filter(Boolean)
-          .slice(0, 20);
+        return samples.map((entry) => {
+          if (typeof entry === "string") return normalizeTextValue(entry);
+          if (entry && typeof entry === "object") {
+            const value = entry.display ?? entry.path ?? entry.name ?? entry.file ?? entry.text ?? entry.label ?? "";
+            return normalizeTextValue(value);
+          }
+          return normalizeTextValue(entry);
+        }).filter(Boolean).slice(0, 20);
       }
       if (typeof samples === "object") {
         return Object.values(samples).map((value) => normalizeTextValue(value)).filter(Boolean).slice(0, 20);
@@ -1125,17 +1178,15 @@
         ? (response.data || response.result || response.payload || response.preview)
         : response;
       const rawSections = Array.isArray(source?.sections) && source.sections.length ? source.sections : [source];
-      return rawSections
-        .filter(Boolean)
-        .map((section, index) => {
-          const title = normalizeTextValue(section.title || section.name || section.label || section.path_label || `预览 ${index + 1}`);
-          const path = normalizeTextValue(section.path || section.dir || section.directory || section.input_path || section.target_path || "");
-          const totalFiles = Number(section.total_files ?? section.total ?? section.count ?? section.file_count ?? 0) || 0;
-          const counts = normalizePreviewCountEntries(section.counts_by_ext || section.counts || section.extensions || section.ext_counts || section.extCount || section.summary);
-          const samples = normalizePreviewSamples(section.sample_files || section.samples || section.files || section.items || section.preview_files);
-          const error = normalizeTextValue(section.error || "");
-          return { title, path, totalFiles, counts, samples, error };
-        });
+      return rawSections.filter(Boolean).map((section, index) => {
+        const title = normalizeTextValue(section.title || section.name || section.label || section.path_label || `预览 ${index + 1}`);
+        const path = normalizeTextValue(section.path || section.dir || section.directory || section.input_path || section.target_path || "");
+        const totalFiles = Number(section.total_files ?? section.total ?? section.count ?? section.file_count ?? 0) || 0;
+        const counts = normalizePreviewCountEntries(section.counts_by_ext || section.counts || section.extensions || section.ext_counts || section.extCount || section.summary);
+        const samples = normalizePreviewSamples(section.sample_files || section.samples || section.files || section.items || section.preview_files);
+        const error = normalizeTextValue(section.error || "");
+        return { title, path, totalFiles, counts, samples, error };
+      });
     }
 
     function formatPreviewSummary(sections) {
@@ -1148,33 +1199,42 @@
         });
         sampleCount += section.samples.length;
       });
-      if (!sections.length) return "暂无预览数据";
+      if (!sections.length) return { short: "暂无预览数据", full: "暂无预览数据" };
+      const extCount = totalKinds.size || sections.length;
       if (totalFiles > 0) {
-        return `共 ${totalFiles} 个文件，${totalKinds.size || sections.length} 类扩展名，展示前 ${Math.min(sampleCount || 20, 20)} 个样本`;
+        return { short: `共 ${totalFiles} 个文件，${extCount} 类扩展名`, full: `共 ${totalFiles} 个文件，${extCount} 类扩展名，展示前 ${Math.min(sampleCount || 20, 20)} 个样本` };
       }
-      return `已返回 ${sections.length} 个预览块，展示前 ${Math.min(sampleCount || 20, 20)} 个样本`;
+      return { short: `已返回 ${sections.length} 个预览块`, full: `已返回 ${sections.length} 个预览块，展示前 ${Math.min(sampleCount || 20, 20)} 个样本` };
     }
 
     function renderPreview() {
       const summaryBox = $("previewSummary");
       const previewBox = $("previewBox");
+      const toggle = $("previewToggle");
+      const arrow = $("previewArrow");
+      const label = $("previewToggleLabel");
+      const gridWrapper = $("previewGridWrapper");
       if (!summaryBox || !previewBox) return;
 
       if (state.previewLoading) {
         summaryBox.textContent = "正在刷新路径预览…";
         previewBox.innerHTML = `<div class="preview-empty">预览请求已发出，正在读取文件统计，请稍候。</div>`;
+        toggle.classList.remove("has-data");
         return;
       }
 
       if (state.previewError) {
         summaryBox.textContent = "预览失败";
         previewBox.innerHTML = `<div class="preview-empty">${escapeHtml(state.previewError)}</div>`;
+        toggle.classList.remove("has-data");
         return;
       }
 
       if (!state.previewData) {
-        summaryBox.textContent = "选择路径后自动展示扩展名统计和样本文件。";
+        summaryBox.textContent = "选择路径后自动展示扩展名统计。";
         previewBox.innerHTML = `<div class="preview-empty">暂无预览数据。选择路径后会自动统计文件数量并展示前 20 个样本。</div>`;
+        toggle.classList.remove("has-data");
+        gridWrapper.classList.remove("expanded");
         return;
       }
 
@@ -1182,10 +1242,24 @@
       if (!sections.length) {
         summaryBox.textContent = "暂无预览数据";
         previewBox.innerHTML = `<div class="preview-empty">后端已返回结果，但当前没有可展示的路径统计。</div>`;
+        toggle.classList.remove("has-data");
         return;
       }
 
-      summaryBox.textContent = formatPreviewSummary(sections);
+      const summary = formatPreviewSummary(sections);
+      summaryBox.textContent = summary.short;
+      toggle.classList.add("has-data");
+
+      if (state.previewExpanded) {
+        arrow.classList.add("expanded");
+        label.textContent = "收起详情";
+        gridWrapper.classList.add("expanded");
+      } else {
+        arrow.classList.remove("expanded");
+        label.textContent = "展开详情";
+        gridWrapper.classList.remove("expanded");
+      }
+
       previewBox.innerHTML = sections.map((section) => {
         const countsHtml = section.counts.length
           ? section.counts.map((item) => `<span class="preview-count-chip">${escapeHtml(item.label || "unknown")} · ${Number(item.count) || 0}</span>`).join("")
@@ -1224,9 +1298,7 @@
       try {
         const response = await api.preview_path(payload);
         if (token !== state.previewToken) return;
-        if (response && response.ok === false) {
-          throw new Error(response.error || "路径预览失败");
-        }
+        if (response && response.ok === false) throw new Error(response.error || "路径预览失败");
         state.previewLoading = false;
         state.previewError = "";
         state.previewData = response || null;
@@ -1258,9 +1330,7 @@
       const task = TASKS[state.activeTask];
       const taskState = state.formData[state.activeTask];
       const sections = [];
-      if (task.supportsInputMode) {
-        sections.push(renderInputModeSection(taskState));
-      }
+      if (task.supportsInputMode) sections.push(renderInputModeSection(taskState));
       sections.push(`
         <section class="form-section">
           <div class="form-section-head">
@@ -1305,14 +1375,6 @@
       schedulePreview();
     }
 
-    function renderAll() {
-      ensureTaskState(state.activeTask);
-      renderNav();
-      renderMode();
-      renderTask();
-      renderForm();
-      syncRunningState();
-    }
     function bindDynamicInputs() {
       document.querySelectorAll('input[data-kind="path"]').forEach((input) => input.addEventListener("input", onFormInput));
       document.querySelectorAll('input[data-kind="param"]').forEach((input) => input.addEventListener("input", onFormInput));
@@ -1417,7 +1479,7 @@
         badge.textContent = "Idle";
         taskChip.textContent = "Idle";
       }
-      text.textContent = message || "已就绪，等待你选择功能并填写参数。";
+      text.textContent = message || "已就绪，等待选择功能并填写参数。";
       $("metricStatus").textContent = status || "idle";
     }
 
@@ -1441,12 +1503,8 @@
         appendLog("warn", "当前环境未连接到 pywebview，目录选择不可用。");
         return "";
       }
-      try {
-        return await api.select_folder();
-      } catch (error) {
-        appendLog("error", `目录选择失败: ${error?.message || error}`);
-        return "";
-      }
+      try { return await api.select_folder(); }
+      catch (error) { appendLog("error", `目录选择失败: ${error?.message || error}`); return ""; }
     }
 
     async function chooseFile() {
@@ -1455,12 +1513,8 @@
         appendLog("warn", "当前环境未连接到 pywebview，文件选择不可用。");
         return "";
       }
-      try {
-        return await api.select_file();
-      } catch (error) {
-        appendLog("error", `文件选择失败: ${error?.message || error}`);
-        return "";
-      }
+      try { return await api.select_file(); }
+      catch (error) { appendLog("error", `文件选择失败: ${error?.message || error}`); return ""; }
     }
 
     function confirmInPlaceExecution(backupDir) {
@@ -1471,20 +1525,9 @@
       desc.textContent = `你将执行原地修改。系统会先备份到：${backupDir || "（未填写）"}。确认继续？`;
       modal.classList.remove("hidden");
       return new Promise((resolve) => {
-        const onCancel = () => {
-          cleanup();
-          resolve(false);
-        };
-        const onOk = () => {
-          cleanup();
-          resolve(true);
-        };
-        const onEsc = (event) => {
-          if (event.key === "Escape") {
-            cleanup();
-            resolve(false);
-          }
-        };
+        const onCancel = () => { cleanup(); resolve(false); };
+        const onOk = () => { cleanup(); resolve(true); };
+        const onEsc = (event) => { if (event.key === "Escape") { cleanup(); resolve(false); } };
         const cleanup = () => {
           modal.classList.add("hidden");
           okBtn.removeEventListener("click", onOk);
@@ -1492,9 +1535,7 @@
           modal.removeEventListener("click", onBackdrop);
           document.removeEventListener("keydown", onEsc);
         };
-        const onBackdrop = (event) => {
-          if (event.target === modal) onCancel();
-        };
+        const onBackdrop = (event) => { if (event.target === modal) onCancel(); };
         okBtn.addEventListener("click", onOk);
         cancelBtn.addEventListener("click", onCancel);
         modal.addEventListener("click", onBackdrop);
@@ -1608,6 +1649,17 @@
       return { level: level === "error" || level === "warn" ? level : "info", text: match[2] };
     }
 
+    function bindPreviewToggle() {
+      const toggleBar = $("previewToggleBar");
+      if (toggleBar) {
+        toggleBar.addEventListener("click", () => {
+          if (!state.previewData) return;
+          state.previewExpanded = !state.previewExpanded;
+          renderPreview();
+        });
+      }
+    }
+
     function bindGlobalEvents() {
       $("runBtn").addEventListener("click", runTask);
       $("clearBtn").addEventListener("click", () => {
@@ -1623,6 +1675,8 @@
           setMode(event.target.value);
         });
       });
+      $("sidebarToggle").addEventListener("click", toggleSidebar);
+      bindPreviewToggle();
     }
 
     function startPolling(token) {
@@ -1691,10 +1745,7 @@
         const payload = validatePayload(state.activeTask);
         if (payload.mode === "in_place") {
           const confirmed = await confirmInPlaceExecution(payload.backup_dir);
-          if (!confirmed) {
-            appendLog("warn", "已取消原地修改任务。");
-            return;
-          }
+          if (!confirmed) { appendLog("warn", "已取消原地修改任务。"); return; }
         }
         const api = hasApi() ? window.pywebview.api : null;
         if (!api || typeof api.run_task !== "function") throw new Error("未检测到 pywebview API，请通过 Python 主程序启动应用。");
