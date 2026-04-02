@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
@@ -7,6 +7,8 @@
     <style>
         /* ========== 极简专业风变量 ========== */
         :root {
+            --font-sans: "PingFang SC", "Microsoft YaHei", "Segoe UI", -apple-system, BlinkMacSystemFont, Arial, sans-serif;
+            --font-mono: "JetBrains Mono", "Cascadia Mono", Consolas, "Courier New", monospace;
             --bg-body: #f4f7f9;
             --bg-surface: #ffffff;
             --bg-hover: #f1f5f9;
@@ -40,7 +42,7 @@
         * { margin: 0; padding: 0; box-sizing: border-box; }
 
         body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+            font-family: var(--font-sans);
             font-size: 14px;
             line-height: 1.5;
             color: var(--text-main);
@@ -260,7 +262,7 @@
         .preview-item-info { flex: 1; min-width: 0; }
         .preview-title-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
         .preview-block-title { font-weight: 600; font-size: 13px; }
-        .preview-path { font-family: monospace; font-size: 11px; color: var(--text-muted); max-width: 200px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .preview-path { font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); max-width: 200px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
         .tag-row { display: flex; flex-wrap: wrap; gap: 6px; }
         .tag-blue { background: var(--primary-light); color: var(--primary); border: 1px solid rgba(37,99,235,0.2); padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 500; }
@@ -554,9 +556,10 @@
             ]
         },
         rename2: {
+            supportsInputMode: true,
             title: "文件批量重命名", desc: "为图片及关联的 JSON 标注文件统一添加前缀。", icon: '<path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>',
             paths: [
-                { key: "source_dir", label: "源目录", hint: "包含图片和 JSON 的文件夹", placeholder: "选择文件夹...", required: true },
+                { key: "input_dir", label: "源目录", hint: "包含图片和 JSON 的文件夹", placeholder: "选择文件夹...", required: true },
                 { key: "target_dir", label: "目标目录", hint: "另存模式下的保存位置", placeholder: "选择文件夹...", required: true, safeOnly: true }
             ],
             params: [
@@ -577,9 +580,10 @@
             ]
         },
         json_path: {
+            supportsInputMode: true,
             title: "JSON 路径修复", desc: "批量修复 LabelMe JSON 文件中的 imagePath 字段指向。", icon: '<polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/>',
             paths: [
-                { key: "json_dir", label: "JSON 目录", hint: "待修复的 JSON 文件夹", placeholder: "选择文件夹...", required: true },
+                { key: "input_dir", label: "JSON 目录", hint: "待修复的 JSON 文件夹", placeholder: "选择文件夹...", required: true },
                 { key: "image_dir", label: "图片参照目录", hint: "用于匹配文件名的图片目录", placeholder: "选择文件夹...", required: true },
                 { key: "output_dir", label: "输出目录", hint: "修复后 JSON 的保存位置", placeholder: "选择文件夹...", required: true, safeOnly: true }
             ],
@@ -588,11 +592,31 @@
     };
 
     // ========== 状态与 DOM 操作 ==========
+    const DEFAULT_APP_SETTINGS = {
+        ui: { theme: "system", density: "comfortable", accent: "blue", glass_strength: 72 },
+        workflow: {
+            default_mode: "safe_copy",
+            default_input_mode: "folder",
+            startup_task: "bgr2rgb",
+            require_inplace_confirm: true,
+            auto_open_output_after_success: false
+        },
+        preview: {
+            auto_refresh: true,
+            recursive: false,
+            sample_limit: 20,
+            debounce_ms: 300,
+            expand_details_by_default: false
+        },
+        history: { remember_paths: true, max_recent_paths: 10, recent_paths: [] },
+        paths: { default_backup_dir: "", default_output_dir: "" }
+    };
+
     const state = {
         activeTask: "bgr2rgb", mode: "safe_copy", running: false, runStartedAt: 0, elapsedTimer: null,
         taskId: "", pollTimer: null, pollToken: 0, logIndex: 0, latestOutputPath: "", latestBackupPath: "", latestError: "",
         previewTimer: null, previewToken: 0, previewLoading: false, previewData: null, previewError: "",
-        formData: {}
+        formData: {}, appSettings: null, autoOpenedTaskId: "", settingsJsonDirty: false
     };
 
     const $ = id => document.getElementById(id);
@@ -600,11 +624,101 @@
     const escapeHtml = val => String(val).replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&#39;");
     const escapeAttr = val => escapeHtml(val);
     const cssEscape = str => window.CSS && window.CSS.escape ? CSS.escape(str) : str;
+    const deepClone = obj => JSON.parse(JSON.stringify(obj));
+    const deepMerge = (base, override) => {
+        const output = deepClone(base);
+        Object.entries(override || {}).forEach(([key, value]) => {
+            if (value && typeof value === "object" && !Array.isArray(value) && output[key] && typeof output[key] === "object" && !Array.isArray(output[key])) {
+                output[key] = deepMerge(output[key], value);
+            } else {
+                output[key] = value;
+            }
+        });
+        return output;
+    };
+
+    const getAppSettings = () => deepMerge(DEFAULT_APP_SETTINGS, state.appSettings || {});
+
+    function applySettingsToRuntime() {
+        const settings = getAppSettings();
+        const workflow = settings.workflow || {};
+        if (!state.running) {
+            if (workflow.default_mode === "in_place" || workflow.default_mode === "safe_copy") {
+                state.mode = workflow.default_mode;
+            }
+            if (TASKS[workflow.startup_task]) state.activeTask = workflow.startup_task;
+        }
+        const inputMode = workflow.default_input_mode === "file" ? "file" : "folder";
+        Object.keys(TASKS).forEach(key => {
+            if (!state.formData[key]) return;
+            if (TASKS[key].supportsInputMode) state.formData[key].input_mode = state.formData[key].input_mode || inputMode;
+        });
+    }
+
+    async function loadSettingsFromBackend() {
+        const api = window.pywebview?.api;
+        if (!api?.get_settings) return;
+        try {
+            const result = await api.get_settings();
+            if (result?.ok && result.settings) {
+                state.appSettings = deepMerge(DEFAULT_APP_SETTINGS, result.settings);
+                applySettingsToRuntime();
+            }
+        } catch (_) {}
+    }
+
+    function applyDefaultOutputPath(taskKey = state.activeTask) {
+        const settings = getAppSettings();
+        const defaultOutput = String(settings.paths?.default_output_dir || "").trim();
+        if (!defaultOutput) return;
+        const task = TASKS[taskKey];
+        const taskState = state.formData[taskKey];
+        if (!task || !taskState || state.mode !== "safe_copy") return;
+        task.paths.forEach(field => {
+            if (!field.safeOnly) return;
+            if (!taskState.paths[field.key] || !String(taskState.paths[field.key]).trim()) {
+                taskState.paths[field.key] = defaultOutput;
+            }
+        });
+    }
+
+    async function rememberRecentPath(pathValue) {
+        const value = String(pathValue || "").trim();
+        if (!value) return;
+        const settings = getAppSettings();
+        const history = settings.history || {};
+        if (!history.remember_paths) return;
+        const maxCount = Math.max(1, Number(history.max_recent_paths || 10));
+        const current = Array.isArray(history.recent_paths) ? history.recent_paths.map(x => String(x || "").trim()).filter(Boolean) : [];
+        const next = [value, ...current.filter(item => item !== value)].slice(0, maxCount);
+        state.appSettings = deepMerge(settings, { history: { recent_paths: next } });
+        try {
+            const api = window.pywebview?.api;
+            if (api?.update_settings) {
+                await api.update_settings({ settings: { history: { recent_paths: next } } });
+            }
+        } catch (_) {}
+    }
 
     function truncatePath(path) {
         const value = String(path || "");
         if (value.length <= 56) return value;
         return `${value.slice(0, 24)}...${value.slice(-24)}`;
+    }
+
+    function normalizeCounts(raw) {
+        if (!raw) return [];
+        if (Array.isArray(raw)) {
+            return raw.map(item => {
+                if (Array.isArray(item)) return { label: String(item[0] || "文件"), count: Number(item[1] || 0) };
+                if (typeof item === "object") return { label: String(item.label || item.ext || "文件"), count: Number(item.count || 0) };
+                return { label: String(item), count: 0 };
+            });
+        }
+        if (typeof raw === "object") {
+            return Object.entries(raw).map(([k, v]) => ({ label: String(k || "文件"), count: Number(v || 0) }));
+        }
+        return [];
     }
 
     function initData() {
@@ -737,13 +851,17 @@
 
     function renderForm() {
         const t = TASKS[state.activeTask], ts = state.formData[state.activeTask], html = [];
+        applyDefaultOutputPath(state.activeTask);
+        const settings = getAppSettings();
+        if (!ts.backup_dir && settings.paths?.default_backup_dir) {
+            ts.backup_dir = settings.paths.default_backup_dir;
+        }
 
         $("pageTitle").textContent = t.title;
         $("taskDesc").textContent = t.desc;
 
         if (t.supportsInputMode) {
             const inputMode = ts.input_mode || 'folder';
-            const isMulti = inputMode === 'files';
             html.push(`
                 <div class="form-group">
                     <div class="label-row"><label>处理对象</label></div>
@@ -752,9 +870,9 @@
                             <input type="radio" name="input_mode" value="folder" ${inputMode === 'folder' ? 'checked' : ''} ${state.running ? 'disabled' : ''}>
                             <div class="radio-box-content"><strong>整个文件夹</strong><span>批量处理目录下所有文件</span></div>
                         </label>
-                        <label class="radio-box ${inputMode === 'files' ? 'active' : ''}">
-                            <input type="radio" name="input_mode" value="files" ${inputMode === 'files' ? 'checked' : ''} ${state.running ? 'disabled' : ''}>
-                            <div class="radio-box-content"><strong>文件列表</strong><span>选择多个文件处理</span></div>
+                        <label class="radio-box ${inputMode === 'file' ? 'active' : ''}">
+                            <input type="radio" name="input_mode" value="file" ${inputMode === 'file' ? 'checked' : ''} ${state.running ? 'disabled' : ''}>
+                            <div class="radio-box-content"><strong>单个文件</strong><span>按文件模式处理单个文件</span></div>
                         </label>
                     </div>
                 </div>
@@ -765,7 +883,7 @@
         t.paths.forEach(p => {
             if (p.safeOnly && state.mode === "in_place") return;
             const inputMode = ts.input_mode || 'folder';
-            const isFilesMode = t.supportsInputMode && inputMode === 'files' && p.key === 'input_dir';
+            const isFilesMode = t.supportsInputMode && inputMode === 'file' && p.key === 'input_dir';
             const actionText = isFilesMode ? "选择文件" : "选择目录";
             const val = ts.paths[p.key] || "";
 
@@ -777,7 +895,7 @@
                     </div>
                     <div class="input-wrapper">
                         <input type="text" data-kind="path" data-key="${escapeAttr(p.key)}" placeholder="${escapeAttr(p.placeholder)}" value="${escapeAttr(val)}" ${state.running ? 'disabled' : ''}>
-                        <button class="btn" data-browse="${escapeAttr(p.key)}" data-type="${isFilesMode ? 'files' : 'folder'}" ${state.running ? 'disabled' : ''}>${actionText}</button>
+                        <button class="btn" data-browse="${escapeAttr(p.key)}" data-type="${isFilesMode ? 'file' : 'folder'}" ${state.running ? 'disabled' : ''}>${actionText}</button>
                     </div>
                 </div>
             `);
@@ -858,9 +976,7 @@
                 e.preventDefault(); if (state.running) return;
                 const k = btn.dataset.browse, type = btn.dataset.type, api = window.pywebview?.api;
                 let path;
-                if (type === 'files') {
-                    path = api ? await api.select_files() : "";
-                } else if (type === 'file') {
+                if (type === 'file' || type === 'files') {
                     path = api ? await api.select_file() : "";
                 } else {
                     path = api ? await api.select_folder() : "";
@@ -869,6 +985,7 @@
 
                 if (k === 'backup_dir') { state.formData[state.activeTask].backup_dir = path; document.querySelector('input[data-kind="backup"]').value = path; }
                 else { state.formData[state.activeTask].paths[k] = path; document.querySelector(`input[data-kind="path"][data-key="${cssEscape(k)}"]`).value = path; }
+                await rememberRecentPath(path);
                 triggerPreview();
             });
         });
@@ -956,7 +1073,22 @@
         if(t.supportsInputMode) {
             const inputMode = s.input_mode || 'folder';
             p.paths.input_mode = inputMode;
-            if(inputMode === 'files') p.paths.input_path = p.paths.input_dir;
+            const mainInput = p.paths.input_dir || p.paths.input_path || "";
+            if(inputMode === 'file') {
+                p.paths.input_path = mainInput;
+                p.paths.input_file = mainInput;
+                if(state.activeTask === 'rename2') p.paths.source_file = mainInput;
+                if(state.activeTask === 'json_path') p.paths.json_file = mainInput;
+            } else {
+                p.paths.input_dir = mainInput;
+                if(state.activeTask === 'rename2') p.paths.source_dir = mainInput;
+                if(state.activeTask === 'json_path') p.paths.json_dir = mainInput;
+            }
+        }
+        if (forPrev) {
+            const settings = getAppSettings();
+            p.recursive = Boolean(settings.preview?.recursive);
+            p.sample_limit = Number(settings.preview?.sample_limit || 20);
         }
         return p;
     }
@@ -968,12 +1100,15 @@
     // 预览逻辑 (抽屉详情模式)
     function triggerPreview() {
         if (state.previewTimer) clearTimeout(state.previewTimer);
+        const settings = getAppSettings();
+        const debounce = Math.max(120, Number(settings.preview?.debounce_ms || 300));
         state.previewTimer = setTimeout(async () => {
             const p = buildPayload(true), box = $("previewContainer"), sum = $("previewSummary");
             const taskState = state.formData[state.activeTask];
+            const mainPath = p.paths.input_dir || p.paths.input_path || p.paths.source_dir || p.paths.json_dir || "";
 
             // 如果没有路径，清空预览
-            if (!Object.keys(p.paths).length || !p.paths.input_dir) {
+            if (!Object.keys(p.paths).length || !mainPath) {
                 sum.textContent = "请先选择有效路径";
                 box.innerHTML = '<div class="preview-empty">暂无数据</div>';
                 taskState.previewData = null;
@@ -990,6 +1125,7 @@
 
             try {
                 const r = await api.preview_path(p);
+                if (!r || r.ok === false) throw new Error((r && r.error) ? r.error : "路径解析失败");
                 // 保存预览数据
                 taskState.previewData = r;
 
@@ -1001,11 +1137,14 @@
                     return;
                 }
 
-                sum.textContent = `发现 ${secs.length} 个数据组`;
+                const totalFiles = Number(r.total_files || 0);
+                const summaryCounts = normalizeCounts(r.counts_by_ext);
+                const summaryText = summaryCounts.slice(0, 4).map(i => `${i.count} ${i.label}`).join(" / ");
+                sum.textContent = totalFiles > 0 ? `共 ${totalFiles} 个文件${summaryText ? `（${summaryText}）` : ""}` : `发现 ${secs.length} 个数据组`;
                 box.innerHTML = `<div class="preview-list">` + secs.map(sec => {
                     // 默认仅显示数量统计
-                    const counts = sec.counts || sec.counts_by_ext || [];
-                    const cnts = counts.map(i => `<span class="tag tag-blue">${escapeHtml(i.label||i[0]||'文件')}×${i.count||i[1]||0}</span>`).join("");
+                    const counts = normalizeCounts(sec.counts || sec.counts_by_ext);
+                    const cnts = counts.map(i => `<span class="tag tag-blue">${escapeHtml(i.label||'文件')}×${i.count||0}</span>`).join("");
                     // 详细样本文件
                     const samples = sec.samples || sec.sample_files || [];
                     const smps = samples.map(sa => `<span class="sample-file" title="${escapeAttr(sa)}">${escapeHtml(sa)}</span>`).join("");
@@ -1029,10 +1168,14 @@
                             </div>
                         </div>`;
                 }).join("") + `</div>`;
+                if (settings.preview?.expand_details_by_default) {
+                    box.querySelectorAll(".preview-samples").forEach(el => el.classList.add("expanded"));
+                    box.querySelectorAll(".preview-item .btn.btn-icon").forEach(el => { el.textContent = "收起 ▴"; });
+                }
             } catch (e) {
                 sum.textContent = "路径解析失败"; box.innerHTML = `<div class="preview-empty" style="color:var(--danger)">${escapeHtml(e.message)}</div>`;
             }
-        }, 300);
+        }, debounce);
     }
 
     // 执行逻辑
@@ -1045,17 +1188,19 @@
             t.params.forEach(f => { if(f.required && p.params[f.key]===undefined) throw new Error(`请填写参数: ${f.label}`); });
             if(state.mode==="in_place") {
                 if(!p.backup_dir) throw new Error("覆盖模式必须指定备份目录，以防数据丢失");
+                const requireConfirm = Boolean(getAppSettings().workflow?.require_inplace_confirm ?? true);
 
-                // 弹窗确认
-                const modal = $("modalConfirm");
-                $("modalDesc").textContent = `此操作将直接修改源文件夹中的文件。系统会在操作前备份到：${p.backup_dir}，请确认备份路径正确无误。`;
-                modal.classList.remove('hidden');
+                if (requireConfirm) {
+                    const modal = $("modalConfirm");
+                    $("modalDesc").textContent = `此操作将直接修改源文件夹中的文件。系统会在操作前备份到：${p.backup_dir}，请确认备份路径正确无误。`;
+                    modal.classList.remove('hidden');
 
-                const confirmed = await new Promise(res => {
-                    const close = (val) => { modal.classList.add('hidden'); $("btnConfirm").onclick=null; $("btnCancel").onclick=null; res(val); };
-                    $("btnConfirm").onclick = () => close(true); $("btnCancel").onclick = () => close(false);
-                });
-                if(!confirmed) { log("warn", "已取消操作。"); return; }
+                    const confirmed = await new Promise(res => {
+                        const close = (val) => { modal.classList.add('hidden'); $("btnConfirm").onclick=null; $("btnCancel").onclick=null; res(val); };
+                        $("btnConfirm").onclick = () => close(true); $("btnCancel").onclick = () => close(false);
+                    });
+                    if(!confirmed) { log("warn", "已取消操作。"); return; }
+                }
             }
 
             const api = window.pywebview?.api; if(!api?.run_task) throw new Error("未检测到后端环境");
@@ -1063,6 +1208,13 @@
             // 清空当前任务的日志和结果
             const taskState = state.formData[state.activeTask];
             taskState.logs = [];
+            taskState.rawLogs = [];
+            taskState.timeline = {
+                prepare: { status: "pending", lines: [] },
+                scan: { status: "pending", lines: [] },
+                process: { status: "pending", lines: [] },
+                finish: { status: "pending", lines: [] }
+            };
             taskState.result = null;
             taskState.latestOutputPath = "";
             taskState.latestBackupPath = "";
@@ -1095,6 +1247,15 @@
                         if(s.status === "success" || s.status === "fail") {
                             clearInterval(state.pollTimer); state.running = false; toggleTimer(false);
                             syncStatus(s.status, s.status === "success" ? "执行成功" : "执行失败");
+                            if (s.status === "success") {
+                                const settings = getAppSettings();
+                                const autoOpen = Boolean(settings.workflow?.auto_open_output_after_success);
+                                const outputPath = String(s.output_path || "").trim();
+                                if (autoOpen && outputPath && state.autoOpenedTaskId !== state.taskId) {
+                                    state.autoOpenedTaskId = state.taskId;
+                                    try { window.pywebview?.api?.open_path?.(outputPath); } catch (_) {}
+                                }
+                            }
                         }
                     }
                 }
@@ -1108,14 +1269,26 @@
     function renderAll() { renderNav(); renderMode(); renderForm(); syncStatus('idle'); restoreTaskLogs(state.activeTask); restoreTaskResult(state.activeTask); }
 
     // 初始化
-    document.addEventListener("DOMContentLoaded", () => {
+    document.addEventListener("DOMContentLoaded", async () => {
         initData();
+        await loadSettingsFromBackend();
 
         $("runBtn").addEventListener("click", runTask);
         $("btnClearLog").addEventListener("click", () => {
             const b = $("terminalLog");
             b.innerHTML = "";
-            state.formData[state.activeTask].logs = [];
+            const taskState = state.formData[state.activeTask];
+            taskState.logs = [];
+            if (Array.isArray(taskState.rawLogs)) taskState.rawLogs = [];
+            if (taskState.timeline) {
+                taskState.timeline = {
+                    prepare: { status: "pending", lines: [] },
+                    scan: { status: "pending", lines: [] },
+                    process: { status: "pending", lines: [] },
+                    finish: { status: "pending", lines: [] }
+                };
+            }
+            if (typeof restoreTaskLogs === "function") restoreTaskLogs(state.activeTask);
         });
         $("btnOpenOut").addEventListener("click", () => {
             const path = state.formData[state.activeTask].latestOutputPath;
@@ -1137,10 +1310,623 @@
         style.textContent = `@keyframes spin { to { transform: rotate(360deg); } }`;
         document.head.appendChild(style);
 
+        applySettingsToRuntime();
         renderAll();
         if(hasApi()) log("info", "后端引擎连接成功，准备就绪。");
         else log("warn", "提示：当前在浏览器环境预览，未连接本地 Python 服务。");
     });
 </script>
+<script>
+(() => {
+    if (window.__phase3PatchApplied) return;
+    window.__phase3PatchApplied = true;
+
+    const STAGES = ["prepare", "scan", "process", "finish"];
+    const STAGE_TEXT = { prepare: "准备", scan: "扫描", process: "处理", finish: "完成" };
+    const STAGE_ICON = { prepare: "●", scan: "◍", process: "◆", finish: "✓" };
+
+    function ensureEnhanceState(taskKey) {
+        if (typeof state === "undefined" || !state.formData || !state.formData[taskKey]) return null;
+        const task = state.formData[taskKey];
+        task.rawLogs = task.rawLogs || [];
+        task.timeline = task.timeline || {
+            prepare: { status: "pending", lines: [] },
+            scan: { status: "pending", lines: [] },
+            process: { status: "pending", lines: [] },
+            finish: { status: "pending", lines: [] },
+        };
+        return task;
+    }
+
+    function inferStage(line) {
+        const text = String(line || "").toLowerCase();
+        if (/准备|启动|提交|受理|queued|running/.test(text)) return "prepare";
+        if (/扫描|读取|预览|分析|发现|文件/.test(text)) return "scan";
+        if (/完成|结束|收尾|success|fail|error|失败|成功/.test(text)) return "finish";
+        return "process";
+    }
+
+    function statusText(status) {
+        if (status === "running") return "进行中";
+        if (status === "success") return "已完成";
+        if (status === "error") return "失败";
+        return "待开始";
+    }
+
+    function activeSettings() {
+        try {
+            if (typeof getAppSettings === "function") return getAppSettings();
+        } catch (_) {}
+        return {
+            ui: { theme: "system", density: "comfortable", accent: "blue", glass_strength: 72 },
+            workflow: { default_mode: "safe_copy", default_input_mode: "folder", startup_task: "bgr2rgb", require_inplace_confirm: true, auto_open_output_after_success: false },
+            preview: { auto_refresh: true, recursive: false, sample_limit: 20, debounce_ms: 300, expand_details_by_default: false },
+            history: { remember_paths: true, max_recent_paths: 10, recent_paths: [] },
+            paths: { default_backup_dir: "", default_output_dir: "" },
+        };
+    }
+
+    function injectStyle() {
+        if (document.getElementById("phase3PatchStyle")) return;
+        const style = document.createElement("style");
+        style.id = "phase3PatchStyle";
+        style.textContent = `
+        .timeline-grid-p3 { display:grid; gap:10px; padding:2px; }
+        .timeline-card-p3 {
+            border:1px solid var(--border-color);
+            border-radius:12px;
+            background: linear-gradient(180deg, rgba(255,255,255,.98), rgba(248,251,255,.96));
+            box-shadow: var(--shadow-card);
+            padding: 12px 14px;
+            display:grid;
+            grid-template-columns: 140px 1fr;
+            align-items: flex-start;
+            gap: 12px;
+        }
+        .timeline-stage-p3 { display:flex; align-items:center; gap:8px; padding-top:2px; }
+        .timeline-dot-p3 {
+            width:22px; height:22px; border-radius:999px;
+            display:inline-flex; align-items:center; justify-content:center;
+            font-size:12px; font-weight:700;
+            border:1px solid var(--border-color); color:var(--text-muted); background:#fff;
+        }
+        .timeline-stage-name-p3 { font-size:14px; font-weight:600; color: var(--text-main); }
+        .timeline-stage-sub-p3 { font-size:11px; color: var(--text-muted); }
+        .timeline-right-p3 { display:grid; gap:8px; min-width:0; }
+        .timeline-top-p3 { display:flex; justify-content:space-between; align-items:center; gap:8px; }
+        .timeline-name-p3 { font-size:12px; font-weight:600; color: var(--text-main); }
+        .timeline-sub-p3 { font-size:10px; color:var(--text-muted); margin-left:6px; }
+        .timeline-badge-p3 { font-size:11px; padding:3px 9px; border:1px solid var(--border-color); border-radius:999px; color:var(--text-muted); background:#fff; font-weight: 600; }
+        .timeline-badge-p3.running { color: var(--warning); border-color:#fde68a; background:#fffbeb; }
+        .timeline-badge-p3.success { color: var(--success); border-color:#86efac; background:#ecfdf3; }
+        .timeline-badge-p3.error { color: var(--danger); border-color:#fca5a5; background:#fef2f2; }
+        .timeline-lines-p3 { margin-top:2px; display:grid; gap:6px; max-height:110px; overflow:auto; padding-right:4px; }
+        .timeline-line-p3 { font-size:12px; line-height:1.45; word-break:break-word; padding:6px 8px; border-radius:8px; background:#f8fafc; border:1px solid #edf2f7; }
+        .timeline-line-p3.muted { color: var(--text-muted); }
+        .timeline-lines-p3::-webkit-scrollbar,
+        .p3-pre::-webkit-scrollbar,
+        .p3-body::-webkit-scrollbar { width: 6px; height: 6px; }
+        .timeline-lines-p3::-webkit-scrollbar-track,
+        .p3-pre::-webkit-scrollbar-track,
+        .p3-body::-webkit-scrollbar-track { background: transparent; }
+        .timeline-lines-p3::-webkit-scrollbar-thumb,
+        .p3-pre::-webkit-scrollbar-thumb,
+        .p3-body::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        .timeline-lines-p3::-webkit-scrollbar-thumb:hover,
+        .p3-pre::-webkit-scrollbar-thumb:hover,
+        .p3-body::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        .p3-btn { margin-left:8px; }
+        .p3-overlay { position:fixed; inset:0; background:rgba(17,30,53,.4); backdrop-filter:blur(8px); z-index:71; display:grid; place-items:center; padding:12px; }
+        .p3-overlay.hidden { display:none; }
+        .p3-dialog { width:min(860px,100%); max-height:92vh; border:1px solid var(--border-color); border-radius:16px; background:#fff; overflow:hidden; display:grid; grid-template-rows:auto minmax(0,1fr) auto; }
+        .p3-head { padding:12px 14px; border-bottom:1px solid var(--border-color); display:flex; justify-content:space-between; gap:8px; }
+        .p3-body { padding:12px 14px; overflow:auto; }
+        .p3-foot { padding:10px 14px; border-top:1px solid var(--border-color); display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap; }
+        .p3-textarea { width:100%; min-height:220px; resize:vertical; border:1px solid var(--border-color); border-radius:10px; padding:10px; font-size:12px; line-height:1.5; font-family: var(--font-mono); }
+        .p3-tip { margin-top:6px; font-size:11px; color:var(--text-muted); }
+        .p3-err { margin-top:6px; min-height:14px; font-size:11px; color:var(--danger); }
+        .p3-settings-grid { display:grid; gap:12px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); margin-bottom:12px; }
+        .p3-section { border:1px solid var(--border-color); border-radius:12px; padding:12px; background:#fbfdff; display:grid; gap:10px; }
+        .p3-section h4 { margin:0; font-size:13px; font-weight:700; color: var(--text-main); }
+        .p3-fields { display:grid; gap:8px; }
+        .p3-field { display:grid; gap:4px; }
+        .p3-field label { font-size:12px; color: var(--text-muted); font-weight:600; }
+        .p3-field input, .p3-field select { height:34px; border:1px solid var(--border-color); border-radius:8px; padding:0 10px; background:#fff; font-size:12px; color: var(--text-main); }
+        .p3-field input[type="checkbox"] { width:16px; height:16px; margin:0; }
+        .p3-check-row { display:flex; align-items:center; gap:8px; }
+        .p3-advanced { margin-top:6px; border:1px dashed var(--border-color); border-radius:10px; padding:8px; }
+        .p3-advanced summary { cursor:pointer; font-size:12px; color:var(--text-muted); font-weight:600; }
+        .p3-recent-list { display:flex; flex-wrap:wrap; gap:6px; max-height:80px; overflow:auto; }
+        .p3-recent-item { font-size:11px; color:var(--text-muted); border:1px solid var(--border-color); border-radius:999px; padding:4px 8px; background:#fff; max-width:100%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+        .p3-debug-grid { display:grid; gap:10px; grid-template-columns:1fr 1fr; }
+        .p3-pre { margin:0; white-space:pre-wrap; word-break:break-word; max-height:50vh; overflow:auto; border:1px solid var(--border-color); border-radius:10px; padding:10px; font-size:12px; line-height:1.5; background:#f8fafc; color:var(--text-main); font-family: var(--font-mono); }
+        @media (max-width: 960px) {
+            .timeline-card-p3 { grid-template-columns: 1fr; }
+            .p3-debug-grid { grid-template-columns: 1fr; }
+        }
+        `;
+        document.head.appendChild(style);
+    }
+
+    function injectUi() {
+        const headerActions = document.querySelector(".header-actions");
+        if (headerActions && !document.getElementById("p3DebugBtn")) {
+            const settingsBtn = document.createElement("button");
+            settingsBtn.id = "p3SettingsBtn";
+            settingsBtn.className = "btn p3-btn";
+            settingsBtn.type = "button";
+            settingsBtn.textContent = "系统设置";
+
+            const debugBtn = document.createElement("button");
+            debugBtn.id = "p3DebugBtn";
+            debugBtn.className = "btn p3-btn";
+            debugBtn.type = "button";
+            debugBtn.textContent = "高级调试";
+
+            headerActions.prepend(debugBtn);
+            headerActions.prepend(settingsBtn);
+        }
+
+        const logTitle = document.querySelector(".log-card .card-title");
+        if (logTitle) logTitle.textContent = "任务时间线";
+
+        if (!document.getElementById("p3DebugOverlay")) {
+            const debugOverlay = document.createElement("div");
+            debugOverlay.id = "p3DebugOverlay";
+            debugOverlay.className = "p3-overlay hidden";
+            debugOverlay.innerHTML = `
+                <div class="p3-dialog" style="width:min(960px,100%);">
+                    <div class="p3-head">
+                        <div>
+                            <div style="font-size:16px;font-weight:700;">高级调试</div>
+                            <div style="font-size:12px;color:var(--text-muted);margin-top:4px;">与系统设置同风格，便于排查任务阶段与原始日志。</div>
+                        </div>
+                        <button class="btn" type="button" id="p3DebugClose">关闭</button>
+                    </div>
+                    <div class="p3-body">
+                        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
+                            <button class="btn" type="button" id="p3CopyRaw">复制原始日志</button>
+                            <button class="btn" type="button" id="p3ClearRaw">清空原始日志</button>
+                            <button class="btn" type="button" id="p3ExportRaw">导出日志文本</button>
+                            <span class="status-badge" id="p3RawCount">0 lines</span>
+                        </div>
+                        <div class="p3-debug-grid">
+                            <div class="p3-section">
+                                <h4>时间线数据快照</h4>
+                                <pre class="p3-pre" id="p3TimelineSnapshot">暂无快照</pre>
+                            </div>
+                            <div class="p3-section">
+                                <h4>原始日志</h4>
+                                <pre class="p3-pre" id="p3RawPanel">暂无日志</pre>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="p3-foot">
+                        <div class="p3-tip">提示：这里只展示本地内存日志，不会上传任何数据。</div>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(debugOverlay);
+        }
+
+        if (!document.getElementById("p3SettingsOverlay")) {
+            const overlay = document.createElement("div");
+            overlay.id = "p3SettingsOverlay";
+            overlay.className = "p3-overlay hidden";
+            overlay.innerHTML = `
+                <div class="p3-dialog">
+                    <div class="p3-head">
+                        <div>
+                            <div style="font-size:16px;font-weight:700;">系统设置</div>
+                            <div style="font-size:12px;color:var(--text-muted);margin-top:4px;">默认显示可视化设置，支持高级 JSON 精调。</div>
+                        </div>
+                        <button class="btn" type="button" id="p3SettingsClose">关闭</button>
+                    </div>
+                    <div class="p3-body">
+                        <div class="p3-settings-grid">
+                            <section class="p3-section">
+                                <h4>界面</h4>
+                                <div class="p3-fields">
+                                    <div class="p3-field"><label>主题</label><select id="p3Theme"><option value="system">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select></div>
+                                    <div class="p3-field"><label>密度</label><select id="p3Density"><option value="comfortable">舒适</option><option value="compact">紧凑</option></select></div>
+                                    <div class="p3-field"><label>强调色</label><select id="p3Accent"><option value="blue">蓝色</option><option value="teal">青色</option><option value="green">绿色</option><option value="orange">橙色</option></select></div>
+                                    <div class="p3-field"><label>玻璃强度(0-100)</label><input id="p3Glass" type="number" min="0" max="100"></div>
+                                </div>
+                            </section>
+                            <section class="p3-section">
+                                <h4>工作流</h4>
+                                <div class="p3-fields">
+                                    <div class="p3-field"><label>默认执行模式</label><select id="p3DefaultMode"><option value="safe_copy">安全复制</option><option value="in_place">原地修改</option></select></div>
+                                    <div class="p3-field"><label>默认输入模式</label><select id="p3DefaultInputMode"><option value="folder">文件夹</option><option value="file">单文件</option></select></div>
+                                    <div class="p3-field"><label>启动任务</label><select id="p3StartupTask"><option value="bgr2rgb">颜色通道转换</option><option value="rename2">批量重命名</option><option value="select_diverse">多样性筛图</option><option value="json_path">JSON 路径修复</option></select></div>
+                                    <div class="p3-field p3-check-row"><input id="p3RequireConfirm" type="checkbox"><label for="p3RequireConfirm">原地修改强制确认</label></div>
+                                    <div class="p3-field p3-check-row"><input id="p3AutoOpenOutput" type="checkbox"><label for="p3AutoOpenOutput">任务成功后自动打开输出目录</label></div>
+                                </div>
+                            </section>
+                            <section class="p3-section">
+                                <h4>预览</h4>
+                                <div class="p3-fields">
+                                    <div class="p3-field p3-check-row"><input id="p3PreviewAuto" type="checkbox"><label for="p3PreviewAuto">自动刷新预览</label></div>
+                                    <div class="p3-field p3-check-row"><input id="p3PreviewRecursive" type="checkbox"><label for="p3PreviewRecursive">递归扫描子目录</label></div>
+                                    <div class="p3-field p3-check-row"><input id="p3PreviewExpandDetails" type="checkbox"><label for="p3PreviewExpandDetails">预览详情默认展开</label></div>
+                                    <div class="p3-field"><label>样本数量</label><input id="p3SampleLimit" type="number" min="1" max="300"></div>
+                                    <div class="p3-field"><label>防抖毫秒</label><input id="p3Debounce" type="number" min="100" max="3000"></div>
+                                </div>
+                            </section>
+                            <section class="p3-section">
+                                <h4>路径与历史</h4>
+                                <div class="p3-fields">
+                                    <div class="p3-field"><label>默认备份目录</label><input id="p3DefaultBackupDir" type="text" placeholder="可留空"></div>
+                                    <div class="p3-field"><label>默认输出目录</label><input id="p3DefaultOutputDir" type="text" placeholder="可留空"></div>
+                                    <div class="p3-field p3-check-row"><input id="p3RememberPaths" type="checkbox"><label for="p3RememberPaths">记住最近路径</label></div>
+                                    <div class="p3-field"><label>最近路径数量上限</label><input id="p3MaxRecentPaths" type="number" min="1" max="50"></div>
+                                    <div class="p3-field">
+                                        <label>最近路径</label>
+                                        <div class="p3-recent-list" id="p3RecentPaths">暂无</div>
+                                        <button class="btn" type="button" id="p3ClearRecentPaths">清空最近路径</button>
+                                    </div>
+                                </div>
+                            </section>
+                        </div>
+                        <details class="p3-advanced" id="p3AdvancedJson">
+                            <summary>高级 JSON</summary>
+                            <textarea id="p3SettingsJson" class="p3-textarea" spellcheck="false"></textarea>
+                            <div class="p3-tip">展开并修改 JSON 时，将优先按 JSON 保存。</div>
+                        </details>
+                        <div id="p3SettingsErr" class="p3-err"></div>
+                    </div>
+                    <div class="p3-foot">
+                        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                            <button class="btn" type="button" id="p3SettingsExport">导出设置</button>
+                            <button class="btn" type="button" id="p3SettingsImport">导入设置</button>
+                        </div>
+                        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                            <button class="btn" type="button" id="p3SettingsReset">恢复默认</button>
+                            <button class="btn" type="button" id="p3SettingsReload">从后端读取</button>
+                            <button class="btn btn-primary" type="button" id="p3SettingsSave">保存设置</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(overlay);
+        }
+    }
+
+    function renderTimeline(taskKey = state.activeTask) {
+        const task = ensureEnhanceState(taskKey);
+        const wrap = document.getElementById("terminalLog");
+        if (!task || !wrap) return;
+        wrap.innerHTML = `<div class="timeline-grid-p3">` + STAGES.map((stage) => {
+            const item = task.timeline[stage];
+            const lines = (item.lines || []).slice(-5);
+            const cls = item.status === "running" ? "running" : item.status === "success" ? "success" : item.status === "error" ? "error" : "";
+            return `
+                <article class="timeline-card-p3">
+                    <div class="timeline-stage-p3">
+                        <div class="timeline-dot-p3">${STAGE_ICON[stage]}</div>
+                        <div>
+                            <div class="timeline-stage-name-p3">${STAGE_TEXT[stage]}</div>
+                            <div class="timeline-stage-sub-p3">${stage}</div>
+                        </div>
+                    </div>
+                    <div class="timeline-right-p3">
+                        <div class="timeline-top-p3">
+                            <div class="timeline-name-p3">阶段状态</div>
+                            <div class="timeline-badge-p3 ${cls}">${statusText(item.status)}</div>
+                        </div>
+                        <div class="timeline-lines-p3">
+                            ${(lines.length ? lines : ["等待任务进入该阶段"]).map((line) => `<div class="timeline-line-p3${item.status === "pending" ? " muted" : ""}">${escapeHtml(line)}</div>`).join("")}
+                        </div>
+                    </div>
+                </article>
+            `;
+        }).join("") + `</div>`;
+    }
+
+    function renderRaw(taskKey = state.activeTask) {
+        const task = ensureEnhanceState(taskKey);
+        const panel = document.getElementById("p3RawPanel");
+        const count = document.getElementById("p3RawCount");
+        const timelinePanel = document.getElementById("p3TimelineSnapshot");
+        if (!task || !panel || !count) return;
+        count.textContent = `${task.rawLogs.length} lines`;
+        panel.textContent = task.rawLogs.length ? task.rawLogs.join("\n") : "暂无日志";
+        if (timelinePanel) timelinePanel.textContent = JSON.stringify(task.timeline || {}, null, 2);
+    }
+
+    function renderSettingsVisual(settings) {
+        const s = settings || activeSettings();
+        const setValue = (id, value) => { const el = document.getElementById(id); if (el) el.value = value ?? ""; };
+        const setChecked = (id, value) => { const el = document.getElementById(id); if (el) el.checked = Boolean(value); };
+        setValue("p3Theme", s.ui?.theme || "system");
+        setValue("p3Density", s.ui?.density || "comfortable");
+        setValue("p3Accent", s.ui?.accent || "blue");
+        setValue("p3Glass", Number(s.ui?.glass_strength ?? 72));
+        setValue("p3DefaultMode", s.workflow?.default_mode || "safe_copy");
+        setValue("p3DefaultInputMode", s.workflow?.default_input_mode || "folder");
+        setValue("p3StartupTask", s.workflow?.startup_task || "bgr2rgb");
+        setChecked("p3RequireConfirm", s.workflow?.require_inplace_confirm ?? true);
+        setChecked("p3AutoOpenOutput", s.workflow?.auto_open_output_after_success ?? false);
+        setChecked("p3PreviewAuto", s.preview?.auto_refresh ?? true);
+        setChecked("p3PreviewRecursive", s.preview?.recursive ?? false);
+        setChecked("p3PreviewExpandDetails", s.preview?.expand_details_by_default ?? false);
+        setValue("p3SampleLimit", Number(s.preview?.sample_limit ?? 20));
+        setValue("p3Debounce", Number(s.preview?.debounce_ms ?? 300));
+        setValue("p3DefaultBackupDir", s.paths?.default_backup_dir || "");
+        setValue("p3DefaultOutputDir", s.paths?.default_output_dir || "");
+        setChecked("p3RememberPaths", s.history?.remember_paths ?? true);
+        setValue("p3MaxRecentPaths", Number(s.history?.max_recent_paths ?? 10));
+        const recentBox = document.getElementById("p3RecentPaths");
+        if (recentBox) {
+            const recent = Array.isArray(s.history?.recent_paths) ? s.history.recent_paths : [];
+            recentBox.innerHTML = recent.length ? recent.map(item => `<span class="p3-recent-item" title="${escapeAttr(item)}">${escapeHtml(item)}</span>`).join("") : `<span class="p3-tip">暂无</span>`;
+        }
+    }
+
+    function collectVisualSettings() {
+        const getValue = (id, fallback = "") => document.getElementById(id)?.value ?? fallback;
+        const getChecked = (id, fallback = false) => document.getElementById(id)?.checked ?? fallback;
+        return {
+            ui: {
+                theme: getValue("p3Theme", "system"),
+                density: getValue("p3Density", "comfortable"),
+                accent: getValue("p3Accent", "blue"),
+                glass_strength: Number(getValue("p3Glass", 72))
+            },
+            workflow: {
+                default_mode: getValue("p3DefaultMode", "safe_copy"),
+                default_input_mode: getValue("p3DefaultInputMode", "folder"),
+                startup_task: getValue("p3StartupTask", "bgr2rgb"),
+                require_inplace_confirm: getChecked("p3RequireConfirm", true),
+                auto_open_output_after_success: getChecked("p3AutoOpenOutput", false)
+            },
+            preview: {
+                auto_refresh: getChecked("p3PreviewAuto", true),
+                recursive: getChecked("p3PreviewRecursive", false),
+                sample_limit: Number(getValue("p3SampleLimit", 20)),
+                debounce_ms: Number(getValue("p3Debounce", 300)),
+                expand_details_by_default: getChecked("p3PreviewExpandDetails", false)
+            },
+            history: {
+                remember_paths: getChecked("p3RememberPaths", true),
+                max_recent_paths: Number(getValue("p3MaxRecentPaths", 10)),
+                recent_paths: (activeSettings().history?.recent_paths || []).slice()
+            },
+            paths: {
+                default_backup_dir: String(getValue("p3DefaultBackupDir", "")).trim(),
+                default_output_dir: String(getValue("p3DefaultOutputDir", "")).trim()
+            }
+        };
+    }
+
+    function syncJsonFromVisual() {
+        const textarea = document.getElementById("p3SettingsJson");
+        if (!textarea) return;
+        textarea.value = JSON.stringify(collectVisualSettings(), null, 2);
+        state.settingsJsonDirty = false;
+    }
+
+    function hookCoreFunctions() {
+        const oldLog = window.log;
+        window.log = function patchedLog(level, text) {
+            const taskKey = state.activeTask;
+            const task = ensureEnhanceState(taskKey);
+            if (task) {
+                const lv = String(level || "info").toLowerCase();
+                const line = String(text || "");
+                task.rawLogs.push(`[${new Date().toLocaleTimeString("zh-CN", { hour12: false })}] [${lv.toUpperCase()}] ${line}`);
+                if (task.rawLogs.length > 5000) task.rawLogs.splice(0, task.rawLogs.length - 5000);
+
+                const stage = inferStage(line);
+                const bucket = task.timeline[stage];
+                if (bucket.status === "pending") bucket.status = "running";
+                if (lv === "error") bucket.status = "error";
+                if (/完成|成功|done|finished|success/.test(line.toLowerCase())) task.timeline.finish.status = "success";
+                if (/失败|error|fail/.test(line.toLowerCase())) task.timeline.finish.status = "error";
+                bucket.lines = [...bucket.lines, line].slice(-8);
+            }
+            if (typeof oldLog === "function") oldLog(level, text);
+            renderTimeline(taskKey);
+            renderRaw(taskKey);
+        };
+
+        const oldRestore = window.restoreTaskLogs;
+        window.restoreTaskLogs = function patchedRestore(taskKey) {
+            if (typeof oldRestore === "function") oldRestore(taskKey);
+            renderTimeline(taskKey);
+            renderRaw(taskKey);
+        };
+
+        const oldRenderAll = window.renderAll;
+        window.renderAll = function patchedRenderAll() {
+            if (typeof oldRenderAll === "function") oldRenderAll();
+            renderTimeline(state.activeTask);
+            renderRaw(state.activeTask);
+        };
+    }
+
+    function bindEnhanceEvents() {
+        const debugOverlay = document.getElementById("p3DebugOverlay");
+        const overlay = document.getElementById("p3SettingsOverlay");
+        const errEl = document.getElementById("p3SettingsErr");
+        const mustOk = (result, action) => {
+            if (!result || result.ok === false) {
+                throw new Error((result && result.error) ? result.error : `${action}失败`);
+            }
+            return result;
+        };
+
+        const toggleDebug = (open) => {
+            if (!debugOverlay) return;
+            debugOverlay.classList.toggle("hidden", !open);
+        };
+        const toggleSettings = (open) => {
+            if (!overlay) return;
+            overlay.classList.toggle("hidden", !open);
+        };
+
+        document.getElementById("p3DebugBtn")?.addEventListener("click", () => { toggleDebug(true); renderRaw(state.activeTask); });
+        document.getElementById("p3DebugClose")?.addEventListener("click", () => toggleDebug(false));
+        debugOverlay?.addEventListener("click", (e) => { if (e.target === debugOverlay) toggleDebug(false); });
+        document.getElementById("p3CopyRaw")?.addEventListener("click", async () => {
+            const task = ensureEnhanceState(state.activeTask);
+            const text = task ? task.rawLogs.join("\n") : "";
+            if (!text) return;
+            try { await navigator.clipboard.writeText(text); } catch (_) {}
+        });
+        document.getElementById("p3ClearRaw")?.addEventListener("click", () => {
+            const task = ensureEnhanceState(state.activeTask);
+            if (!task) return;
+            task.rawLogs = [];
+            renderRaw(state.activeTask);
+        });
+        document.getElementById("p3ExportRaw")?.addEventListener("click", () => {
+            const task = ensureEnhanceState(state.activeTask);
+            const text = task?.rawLogs?.join("\n") || "";
+            if (!text) return;
+            const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
+            const link = document.createElement("a");
+            link.href = URL.createObjectURL(blob);
+            link.download = `debug-${Date.now()}.log`;
+            link.click();
+            setTimeout(() => URL.revokeObjectURL(link.href), 300);
+        });
+
+        document.getElementById("p3SettingsBtn")?.addEventListener("click", async () => {
+            errEl.textContent = "";
+            const api = window.pywebview?.api;
+            try {
+                let settings = activeSettings();
+                if (api?.get_settings) {
+                    const r = await api.get_settings();
+                    if (r?.ok && r.settings) settings = r.settings;
+                }
+                state.appSettings = settings;
+                renderSettingsVisual(settings);
+                document.getElementById("p3SettingsJson").value = JSON.stringify(settings || {}, null, 2);
+                state.settingsJsonDirty = false;
+            } catch (e) {
+                errEl.textContent = e?.message || String(e);
+            }
+            toggleSettings(true);
+        });
+        document.getElementById("p3SettingsClose")?.addEventListener("click", () => toggleSettings(false));
+        overlay?.addEventListener("click", (e) => { if (e.target === overlay) toggleSettings(false); });
+
+        document.getElementById("p3SettingsReload")?.addEventListener("click", async () => {
+            const api = window.pywebview?.api;
+            try {
+                const r = mustOk(await api?.get_settings?.(), "读取设置");
+                state.appSettings = r.settings || {};
+                renderSettingsVisual(state.appSettings);
+                document.getElementById("p3SettingsJson").value = JSON.stringify(r?.settings || {}, null, 2);
+                state.settingsJsonDirty = false;
+                errEl.textContent = "";
+            } catch (e) { errEl.textContent = e?.message || String(e); }
+        });
+        document.getElementById("p3SettingsReset")?.addEventListener("click", async () => {
+            const api = window.pywebview?.api;
+            try {
+                const r = mustOk(await api?.reset_settings?.(), "恢复默认");
+                state.appSettings = r.settings || {};
+                renderSettingsVisual(state.appSettings);
+                document.getElementById("p3SettingsJson").value = JSON.stringify(r?.settings || {}, null, 2);
+                state.settingsJsonDirty = false;
+                errEl.textContent = "";
+            } catch (e) { errEl.textContent = e?.message || String(e); }
+        });
+        document.getElementById("p3ClearRecentPaths")?.addEventListener("click", () => {
+            const settings = activeSettings();
+            settings.history = settings.history || {};
+            settings.history.recent_paths = [];
+            state.appSettings = settings;
+            renderSettingsVisual(settings);
+            syncJsonFromVisual();
+        });
+        document.querySelectorAll("#p3SettingsOverlay input, #p3SettingsOverlay select").forEach(el => {
+            el.addEventListener("input", () => {
+                renderSettingsVisual(collectVisualSettings());
+                syncJsonFromVisual();
+            });
+            el.addEventListener("change", () => {
+                renderSettingsVisual(collectVisualSettings());
+                syncJsonFromVisual();
+            });
+        });
+        document.getElementById("p3SettingsJson")?.addEventListener("input", () => {
+            state.settingsJsonDirty = true;
+        });
+        document.getElementById("p3SettingsSave")?.addEventListener("click", async () => {
+            const api = window.pywebview?.api;
+            try {
+                const advanced = document.getElementById("p3AdvancedJson");
+                let payload;
+                if (advanced?.open && state.settingsJsonDirty) {
+                    payload = JSON.parse(document.getElementById("p3SettingsJson").value || "{}");
+                } else {
+                    payload = collectVisualSettings();
+                }
+                if (api?.validate_settings) {
+                    const v = await api.validate_settings({ settings: payload });
+                    if (!v?.ok || v?.valid === false) throw new Error(v?.error || (v?.errors || []).join("；") || "设置校验失败");
+                }
+                if (api?.update_settings) {
+                    const r = await api.update_settings({ settings: payload });
+                    if (!r?.ok) throw new Error(r?.error || "设置保存失败");
+                    state.appSettings = r.settings || payload;
+                    renderSettingsVisual(state.appSettings);
+                    document.getElementById("p3SettingsJson").value = JSON.stringify(r.settings || payload, null, 2);
+                    state.settingsJsonDirty = false;
+                }
+                errEl.textContent = "";
+            } catch (e) { errEl.textContent = e?.message || String(e); }
+        });
+        document.getElementById("p3SettingsExport")?.addEventListener("click", async () => {
+            const api = window.pywebview?.api;
+            try {
+                const r = mustOk(await api?.export_settings?.(), "导出设置");
+                const txt = typeof r?.json === "string" ? r.json : JSON.stringify(r?.settings || {}, null, 2);
+                await navigator.clipboard.writeText(txt);
+                errEl.textContent = "设置 JSON 已复制到剪贴板。";
+            } catch (e) { errEl.textContent = e?.message || String(e); }
+        });
+        document.getElementById("p3SettingsImport")?.addEventListener("click", async () => {
+            const api = window.pywebview?.api;
+            try {
+                const text = window.prompt("请粘贴设置 JSON：", "");
+                if (!text) return;
+                const parsed = JSON.parse(text);
+                if (api?.import_settings) {
+                    const r = mustOk(await api.import_settings({ settings: parsed }), "导入设置");
+                    state.appSettings = r.settings || parsed;
+                    renderSettingsVisual(state.appSettings);
+                    document.getElementById("p3SettingsJson").value = JSON.stringify(r.settings || parsed, null, 2);
+                } else {
+                    state.appSettings = parsed;
+                    renderSettingsVisual(state.appSettings);
+                    document.getElementById("p3SettingsJson").value = JSON.stringify(parsed, null, 2);
+                }
+                state.settingsJsonDirty = false;
+                errEl.textContent = "导入成功。";
+            } catch (e) { errEl.textContent = e?.message || String(e); }
+        });
+        document.addEventListener("keydown", e => {
+            if (e.key !== "Escape") return;
+            toggleDebug(false);
+            toggleSettings(false);
+        });
+    }
+
+    injectStyle();
+    injectUi();
+    hookCoreFunctions();
+    bindEnhanceEvents();
+    renderSettingsVisual(activeSettings());
+    syncJsonFromVisual();
+})();
+</script>
 </body>
 </html>
+
+
+

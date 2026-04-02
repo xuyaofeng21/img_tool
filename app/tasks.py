@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import copy
 import threading
@@ -133,4 +133,3 @@ class TaskManager:
             result["started_at"] = record["started_at"]
             result["ended_at"] = record["ended_at"]
             return result
-

@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import sys
 from pathlib import Path
@@ -30,9 +30,7 @@ def _resolve_ui_file() -> Path:
 
 def main() -> None:
     if webview is None:
-        raise RuntimeError(
-            "未安装或无法加载 pywebview，请先安装依赖后再运行"
-        ) from _WEBVIEW_IMPORT_ERROR
+        raise RuntimeError("未安装或无法加载 pywebview，请先安装依赖后再运行。") from _WEBVIEW_IMPORT_ERROR
 
     task_manager = TaskManager()
     bridge = ApiBridge(task_manager)
@@ -42,11 +40,10 @@ def main() -> None:
         title="个人图片批量处理工具箱",
         url=ui_file.as_uri(),
         js_api=bridge,
-        width=1200,
-        height=700,
-        min_size=(900, 600),
+        width=1320,
+        height=820,
+        min_size=(1000, 680),
         resizable=True,
-      
     )
     bridge.set_window(window)
     webview.start(debug=False)

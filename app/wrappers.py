@@ -15,16 +15,38 @@ from typing import Any, Callable
 
 import cv2
 import imagehash
+import numpy as np
 from PIL import Image
 
 
 LogFn = Callable[[str, str], None]
 
 _SCRIPT_MODULES: dict[str, Any] = {}
+_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif", ".gif", ".webp"}
+_PNG_EXTENSIONS = {".png"}
+
+
+def _counts_to_items(counts: dict[str, int]) -> list[dict[str, int | str]]:
+    return [{"label": key, "count": int(value)} for key, value in counts.items()]
 
 
 def _project_root() -> Path:
     return Path(__file__).resolve().parent.parent
+
+
+def _resolve_json_path_script() -> Path:
+    scripts_dir = _project_root() / "script"
+    preferred_names = ["更改json路径.py", "修改json路径.py", "json_path.py"]
+    for name in preferred_names:
+        candidate = scripts_dir / name
+        if candidate.exists():
+            return candidate
+
+    py_files = sorted([p for p in scripts_dir.glob("*.py") if p.is_file()], key=lambda p: str(p))
+    candidates = [p for p in py_files if "json" in p.stem.lower()]
+    if candidates:
+        return candidates[0]
+    raise FileNotFoundError(f"未找到 json_path 脚本，请检查目录: {scripts_dir}")
 
 
 def _load_script_module(module_name: str, relative_file: str) -> Any:
@@ -87,6 +109,12 @@ def _ensure_safe_output_dir(path: str, protected_roots: list[Path], field_name: 
 def _resolve_existing_path(value: Any) -> Path | None:
     if value is None:
         return None
+    if isinstance(value, (list, tuple, set)):
+        for item in value:
+            resolved = _resolve_existing_path(item)
+            if resolved is not None:
+                return resolved
+        return None
     text = str(value).strip()
     if not text:
         return None
@@ -96,17 +124,79 @@ def _resolve_existing_path(value: Any) -> Path | None:
     return None
 
 
+def _split_path_values(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, (list, tuple, set)):
+        parts: list[str] = []
+        for item in value:
+            parts.extend(_split_path_values(item))
+        return parts
+    text = str(value).strip()
+    if not text:
+        return []
+    return [chunk.strip() for chunk in text.split(";") if chunk.strip()]
+
+
+def _normalize_input_mode(value: Any) -> tuple[str, list[str]]:
+    mode = str(value or "folder").strip().lower()
+    warnings: list[str] = []
+    if mode in {"files", "file"}:
+        if mode == "files":
+            warnings.append("input_mode=files 已兼容为 file")
+        return "file", warnings
+    if mode in {"folder", "dir", "directory"}:
+        return "folder", warnings
+    raise ValueError("input_mode 只能是 folder 或 file")
+
+
+def _collect_existing_paths(mapping: dict[str, Any], keys: list[str]) -> list[Path]:
+    results: list[Path] = []
+    for key in keys:
+        if key not in mapping:
+            continue
+        for raw in _split_path_values(mapping.get(key)):
+            resolved = _resolve_existing_path(raw)
+            if resolved is not None:
+                results.append(resolved)
+
+    deduped: list[Path] = []
+    seen: set[str] = set()
+    for path in results:
+        marker = str(path)
+        if marker not in seen:
+            seen.add(marker)
+            deduped.append(path)
+    return deduped
+
+
+def _collect_first_existing_dir(mapping: dict[str, Any], keys: list[str]) -> Path | None:
+    for key in keys:
+        if key not in mapping:
+            continue
+        for raw in _split_path_values(mapping.get(key)):
+            resolved = _resolve_existing_path(raw)
+            if resolved is not None and resolved.is_dir():
+                return resolved
+    return None
+
+
+def _first_existing_path_from_mapping(mapping: dict[str, Any], keys: list[str]) -> Path | None:
+    paths = _collect_existing_paths(mapping, keys)
+    return paths[0] if paths else None
+
+
 def _iter_preview_files(root: Path, recursive: bool = False) -> list[Path]:
     if root.is_file():
         return [root]
     if not root.is_dir():
         return []
     if recursive:
-        return [p for p in root.rglob("*") if p.is_file()]
-    return [p for p in root.iterdir() if p.is_file()]
+        return sorted([p for p in root.rglob("*") if p.is_file()], key=lambda p: str(p))
+    return sorted([p for p in root.iterdir() if p.is_file()], key=lambda p: str(p))
 
 
-def _build_preview_result(root: Path, recursive: bool = False, sample_limit: int = 20) -> dict[str, Any]:
+def _build_preview_section(root: Path, recursive: bool = False, sample_limit: int = 20) -> dict[str, Any]:
     files = _iter_preview_files(root, recursive=recursive)
     counts: dict[str, int] = {}
     for file_path in files:
@@ -115,10 +205,38 @@ def _build_preview_result(root: Path, recursive: bool = False, sample_limit: int
     sorted_counts = dict(sorted(counts.items(), key=lambda item: (-item[1], item[0])))
     samples = [str(path) for path in files[:sample_limit]]
     return {
-        "ok": True,
+        "key": f"{root}:{'r' if recursive else 'n'}",
+        "name": root.name or str(root),
+        "title": root.name or str(root),
+        "path": str(root),
         "counts_by_ext": sorted_counts,
+        "counts": _counts_to_items(sorted_counts),
         "sample_files": samples,
+        "samples": list(samples),
         "total_files": len(files),
+    }
+
+
+def _build_preview_result(roots: list[Path], recursive: bool = False, sample_limit: int = 20) -> dict[str, Any]:
+    sections = [_build_preview_section(root, recursive=recursive, sample_limit=sample_limit) for root in roots]
+    all_files: list[Path] = []
+    for root in roots:
+        all_files.extend(_iter_preview_files(root, recursive=recursive))
+    counts: dict[str, int] = {}
+    for file_path in all_files:
+        suffix = file_path.suffix.lower().lstrip(".") or "[no_ext]"
+        counts[suffix] = counts.get(suffix, 0) + 1
+    sorted_counts = dict(sorted(counts.items(), key=lambda item: (-item[1], item[0])))
+    samples = [str(path) for path in all_files[:sample_limit]]
+    return {
+        "ok": True,
+        "total_files": len(all_files),
+        "counts_by_ext": sorted_counts,
+        "counts": _counts_to_items(sorted_counts),
+        "sample_files": samples,
+        "samples": list(samples),
+        "sections": sections,
+        "warnings": [],
         "error": "",
     }
 
@@ -137,65 +255,87 @@ def preview_path_info(payload: dict[str, Any]) -> dict[str, Any]:
         if sample_limit <= 0:
             sample_limit = 20
 
-        root = _resolve_preview_target(payload)
-        return _build_preview_result(root, recursive=recursive, sample_limit=sample_limit)
+        roots, warnings = _resolve_preview_targets(payload)
+        result = _build_preview_result(roots, recursive=recursive, sample_limit=sample_limit)
+        result["warnings"] = warnings
+        return result
     except Exception as exc:
         return {
             "ok": False,
-            "counts_by_ext": {},
-            "sample_files": [],
             "total_files": 0,
+            "counts_by_ext": {},
+            "counts": [],
+            "sample_files": [],
+            "samples": [],
+            "sections": [],
+            "warnings": [],
             "error": str(exc),
         }
 
 
-def _first_existing_path_from_mapping(mapping: dict[str, Any], keys: list[str]) -> Path | None:
-    for key in keys:
-        if key not in mapping:
-            continue
-        resolved = _resolve_existing_path(mapping.get(key))
-        if resolved is not None:
-            return resolved
-    return None
-
-
-def _resolve_preview_target(payload: dict[str, Any]) -> Path:
+def _resolve_preview_targets(payload: dict[str, Any]) -> tuple[list[Path], list[str]]:
     if not isinstance(payload, dict):
         raise ValueError("payload 必须是对象")
 
-    # 检查是否是 files 模式（多个文件用分号分隔）
-    paths_data = payload.get("paths", {})
-    input_mode = paths_data.get("input_mode", "")
-    input_path = paths_data.get("input_path", "")
+    paths_data = payload.get("paths", {}) if isinstance(payload.get("paths"), dict) else {}
+    raw_input_mode = paths_data.get("input_mode", payload.get("input_mode", "folder"))
+    input_mode, warnings = _normalize_input_mode(raw_input_mode)
 
-    # 如果是 files 模式且有多个文件路径，取第一个文件的目录作为预览根目录
-    if input_mode == "files" and input_path:
-        # input_path 可能是分号分隔的多个文件路径
-        first_file = input_path.split(";")[0].strip()
-        if first_file:
-            resolved = _resolve_existing_path(first_file)
-            if resolved is not None and resolved.exists():
-                if resolved.is_file():
-                    return resolved.parent
-                return resolved
-
-    candidates: list[Any] = []
-    for key in ("path", "file", "input_path", "input_dir", "source_path", "source_dir", "json_dir", "image_dir", "output_dir"):
+    candidate_values: list[Any] = []
+    candidate_keys = (
+        "path",
+        "file",
+        "input_file",
+        "source_file",
+        "json_file",
+        "image_file",
+        "input_path",
+        "input_dir",
+        "source_path",
+        "source_dir",
+        "json_dir",
+        "image_dir",
+        "target_dir",
+        "output_dir",
+    )
+    for key in candidate_keys:
         if key in payload:
-            candidates.append(payload.get(key))
+            candidate_values.append(payload.get(key))
+    if isinstance(paths_data, dict):
+        for key in candidate_keys:
+            if key in paths_data:
+                candidate_values.append(paths_data.get(key))
 
-    paths = payload.get("paths")
-    if isinstance(paths, dict):
-        for key in ("path", "file", "input_path", "input_dir", "source_path", "source_dir", "json_dir", "image_dir", "output_dir"):
-            if key in paths:
-                candidates.append(paths.get(key))
+    resolved: list[Path] = []
+    for candidate in candidate_values:
+        for part in _split_path_values(candidate):
+            path = _resolve_existing_path(part)
+            if path is not None:
+                resolved.append(path)
 
-    for candidate in candidates:
-        resolved = _resolve_existing_path(candidate)
-        if resolved is not None:
-            return resolved
+    deduped: list[Path] = []
+    seen: set[str] = set()
+    for path in resolved:
+        marker = str(path)
+        if marker not in seen:
+            seen.add(marker)
+            deduped.append(path)
 
-    raise ValueError("未找到可预览的有效路径")
+    if not deduped:
+        raise ValueError("未找到可预览的有效路径")
+
+    if input_mode == "file":
+        file_roots = [path for path in deduped if path.is_file()]
+        if file_roots:
+            return file_roots, warnings
+        if len(deduped) == 1:
+            return deduped, warnings
+        raise ValueError("文件模式下必须提供有效的单个文件或文件列表")
+
+    dir_roots = [path for path in deduped if path.is_dir()]
+    if dir_roots:
+        return dir_roots, warnings
+    return [deduped[0]], warnings
 
 
 def _stage_single_file(file_path: Path, task_name: str) -> tuple[Path, Path]:
@@ -203,6 +343,102 @@ def _stage_single_file(file_path: Path, task_name: str) -> tuple[Path, Path]:
     staged = stage_dir / file_path.name
     shutil.copy2(file_path, staged)
     return stage_dir, staged
+
+
+def _stage_files_with_ascii_names(file_paths: list[Path], task_name: str) -> tuple[Path, dict[str, Path]]:
+    stage_dir = Path(tempfile.mkdtemp(prefix=f"{task_name}_stage_"))
+    mapping: dict[str, Path] = {}
+    for index, file_path in enumerate(file_paths, 1):
+        staged_name = f"{task_name}_{index:04d}{file_path.suffix}"
+        staged_path = stage_dir / staged_name
+        shutil.copy2(file_path, staged_path)
+        mapping[staged_path.name] = file_path
+    return stage_dir, mapping
+
+
+def _stage_rename_single_file(source_file: Path) -> tuple[Path, dict[str, Path]]:
+    stage_dir = Path(tempfile.mkdtemp(prefix="rename2_stage_"))
+    mapping: dict[str, Path] = {}
+
+    staged_file = stage_dir / source_file.name
+    shutil.copy2(source_file, staged_file)
+    mapping[staged_file.name] = source_file
+
+    if source_file.suffix.lower() != ".json":
+        assoc_json = source_file.with_suffix(".json")
+        if assoc_json.exists():
+            staged_json = stage_dir / assoc_json.name
+            shutil.copy2(assoc_json, staged_json)
+            mapping[staged_json.name] = assoc_json
+
+    return stage_dir, mapping
+
+
+def _restore_outputs_to_dir(
+    staged_output_dir: Path,
+    staged_to_original: dict[str, Path],
+    final_dir: Path,
+    *,
+    prefix: str = "",
+    output_name_builder: Callable[[Path, Path], str] | None = None,
+) -> list[Path]:
+    final_dir.mkdir(parents=True, exist_ok=True)
+    restored: list[Path] = []
+    for output_file in sorted([p for p in staged_output_dir.iterdir() if p.is_file()], key=lambda p: str(p)):
+        lookup_name = output_file.name
+        if prefix and lookup_name.startswith(prefix):
+            lookup_name = lookup_name[len(prefix) :]
+        original_path = staged_to_original.get(lookup_name)
+        if original_path is None:
+            continue
+        if output_name_builder is None:
+            final_name = original_path.name
+        else:
+            final_name = output_name_builder(original_path, output_file)
+        destination = final_dir / final_name
+        shutil.copy2(output_file, destination)
+        restored.append(destination)
+    return restored
+
+
+def _restore_outputs_back(
+    staged_output_dir: Path,
+    staged_to_original: dict[str, Path],
+    *,
+    prefix: str = "",
+    output_name_builder: Callable[[Path, Path], str] | None = None,
+) -> list[Path]:
+    restored: list[Path] = []
+    for output_file in sorted([p for p in staged_output_dir.iterdir() if p.is_file()], key=lambda p: str(p)):
+        lookup_name = output_file.name
+        if prefix and lookup_name.startswith(prefix):
+            lookup_name = lookup_name[len(prefix) :]
+        original_path = staged_to_original.get(lookup_name)
+        if original_path is None:
+            continue
+        if output_name_builder is None:
+            destination = original_path
+        else:
+            destination = original_path.parent / output_name_builder(original_path, output_file)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(output_file, destination)
+        restored.append(destination)
+    return restored
+
+
+def _backup_files(file_paths: list[Path], backup_dir: str, task_name: str) -> Path:
+    backup_root = _ensure_dir(backup_dir, "backup_dir")
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    session = backup_root / f"{task_name}_{stamp}"
+    suffix = 1
+    while session.exists():
+        suffix += 1
+        session = backup_root / f"{task_name}_{stamp}_{suffix}"
+    session.mkdir(parents=True, exist_ok=False)
+    for index, file_path in enumerate(file_paths, 1):
+        dst_name = file_path.name if index == 1 else f"{index:04d}_{file_path.name}"
+        shutil.copy2(file_path, session / dst_name)
+    return session
 
 
 def _backup_single_file(file_path: Path, backup_dir: str, task_name: str) -> Path:
@@ -220,7 +456,15 @@ def _backup_single_file(file_path: Path, backup_dir: str, task_name: str) -> Pat
 
 
 def _save_image_as_rgb(src_path: Path, dst_path: Path) -> None:
-    img = cv2.imread(str(src_path), cv2.IMREAD_UNCHANGED)
+    img = None
+    try:
+        raw = np.fromfile(str(src_path), dtype=np.uint8)
+        if raw.size > 0:
+            img = cv2.imdecode(raw, cv2.IMREAD_UNCHANGED)
+    except Exception:
+        img = None
+    if img is None:
+        img = cv2.imread(str(src_path), cv2.IMREAD_UNCHANGED)
     if img is None:
         raise ValueError(f"无法读取图像: {src_path.name}")
 
@@ -439,36 +683,53 @@ def _run_bgr2rgb(paths: dict[str, Any], params: dict[str, Any], mode: str, backu
     convert = module.convert_rgb_to_bgr_and_save
     convert_reverse = getattr(module, "convert_bgr_to_rgb_and_save", None)
 
-    input_mode = str(paths.get("input_mode", "folder")).strip().lower()
+    input_mode, mode_warnings = _normalize_input_mode(paths.get("input_mode", "folder"))
     color_direction = str(params.get("color_direction", "rgb_to_bgr")).strip().lower()
     if color_direction not in {"rgb_to_bgr", "bgr_to_rgb"}:
         raise ValueError("color_direction 必须为 rgb_to_bgr 或 bgr_to_rgb")
 
+    for warning in mode_warnings:
+        log("warn", warning)
+
     if input_mode == "file":
-        source_path = _first_existing_path_from_mapping(paths, ["input_file", "source_file", "input_path", "file_path", "input_dir", "source_dir"])
-        if source_path is None or not source_path.is_file():
-            raise ValueError("文件模式下必须提供有效的单个输入文件路径")
-        working_input, _ = _stage_single_file(source_path, "bgr2rgb")
-        inplace_output_path = source_path.parent
+        source_files = [
+            p
+            for p in _collect_existing_paths(paths, ["input_file", "source_file", "input_path", "file_path", "input_dir", "source_dir"])
+            if p.is_file() and p.suffix.lower() in _IMAGE_EXTENSIONS
+        ]
+        if not source_files:
+            source_dir = _collect_first_existing_dir(paths, ["input_dir", "source_dir", "input_path"])
+            if source_dir is not None:
+                source_files = [p for p in sorted(source_dir.iterdir(), key=lambda p: str(p)) if p.is_file() and p.suffix.lower() in _IMAGE_EXTENSIONS]
+        if not source_files:
+            raise ValueError("文件模式下必须提供有效的输入文件")
+        working_input, staged_to_original = _stage_files_with_ascii_names(source_files, "bgr2rgb")
+        source_roots = sorted({str(p.parent) for p in source_files})
+        default_output_dir = source_files[0].parent
     else:
-        source_path = _first_existing_path_from_mapping(paths, ["input_dir", "source_dir", "input_path"])
-        if source_path is None or not source_path.is_dir():
+        source_path = _collect_first_existing_dir(paths, ["input_dir", "source_dir", "input_path"])
+        if source_path is None:
             raise ValueError("输入目录无效")
-        working_input = source_path
-        inplace_output_path = source_path
+        source_files = [p for p in sorted(source_path.iterdir(), key=lambda p: str(p)) if p.is_file() and p.suffix.lower() in _IMAGE_EXTENSIONS]
+        if not source_files:
+            raise ValueError("输入目录无效")
+        working_input, staged_to_original = _stage_files_with_ascii_names(source_files, "bgr2rgb")
+        source_roots = [str(source_path)]
+        default_output_dir = source_path
 
     backup_path = ""
     if mode == "safe_copy":
-        output_dir = _ensure_safe_output_dir(str(paths.get("output_dir", "")), [source_path], "output_dir")
-        process_output_dir = output_dir
+        protected_roots = [Path(root) for root in source_roots]
+        output_dir = _ensure_safe_output_dir(str(paths.get("output_dir", "")), protected_roots, "output_dir")
+        process_output_dir = Path(tempfile.mkdtemp(prefix="bgr2rgb_out_"))
         result_output_path = output_dir
     else:
         if not backup_dir:
             raise ValueError("原地修改模式必须提供 backup_dir")
-        backup_session = _backup_single_file(source_path, backup_dir, "bgr2rgb") if input_mode == "file" else _backup_directories("bgr2rgb", [source_path], backup_dir, log)
+        backup_session = _backup_files(source_files, backup_dir, "bgr2rgb") if input_mode == "file" else _backup_directories("bgr2rgb", [default_output_dir], backup_dir, log)
         backup_path = str(backup_session)
         process_output_dir = Path(tempfile.mkdtemp(prefix="bgr2rgb_out_"))
-        result_output_path = inplace_output_path
+        result_output_path = default_output_dir
 
     try:
         if color_direction == "rgb_to_bgr":
@@ -482,18 +743,12 @@ def _run_bgr2rgb(paths: dict[str, Any], params: dict[str, Any], mode: str, backu
                 success, fail, skipped = _convert_folder_bgr_to_rgb(working_input, process_output_dir, log)
 
         if mode == "in_place":
-            if input_mode == "file":
-                produced = next((p for p in process_output_dir.iterdir() if p.is_file()), None)
-                if produced is None:
-                    raise RuntimeError("文件模式未生成输出文件")
-                shutil.copy2(produced, source_path)
-            else:
-                _copy_all_files(process_output_dir, source_path)
+            _restore_outputs_back(process_output_dir, staged_to_original)
+        else:
+            _restore_outputs_to_dir(process_output_dir, staged_to_original, result_output_path)
     finally:
-        if mode == "in_place":
-            shutil.rmtree(process_output_dir, ignore_errors=True)
-        if input_mode == "file":
-            shutil.rmtree(working_input, ignore_errors=True)
+        shutil.rmtree(process_output_dir, ignore_errors=True)
+        shutil.rmtree(working_input, ignore_errors=True)
 
     return {
         "status": "success",
@@ -510,12 +765,59 @@ def _run_rename(paths: dict[str, Any], params: dict[str, Any], mode: str, backup
     module = _load_script_module("script_rename2", "rename2.py")
     process = module.process_files_and_rename
 
-    source_dir = _normalize_dir(str(paths.get("source_dir", "")), "source_dir", must_exist=True)
+    input_mode, mode_warnings = _normalize_input_mode(paths.get("input_mode", "folder"))
     prefix = str(params.get("prefix", "")).strip()
     if not prefix:
         raise ValueError("prefix 不能为空")
     if any(c in prefix for c in r'\/:*?"<>|'):
         raise ValueError(r'prefix 不能包含字符: \ / : * ? " < > |')
+
+    for warning in mode_warnings:
+        log("warn", warning)
+
+    if input_mode == "file":
+        source_file = _first_existing_path_from_mapping(paths, ["input_file", "source_file", "input_path", "file_path", "input_dir", "source_dir", "json_file"])
+        if source_file is None or not source_file.is_file():
+            source_dir = _collect_first_existing_dir(paths, ["input_dir", "source_dir", "input_path"])
+            if source_dir is not None:
+                candidates = [
+                    p
+                    for p in sorted(source_dir.iterdir(), key=lambda p: str(p))
+                    if p.is_file() and (p.suffix.lower() in _IMAGE_EXTENSIONS or p.suffix.lower() == ".json")
+                ]
+                source_file = candidates[0] if candidates else None
+        if source_file is None:
+            raise ValueError("文件模式下必须提供有效的输入文件")
+        stage_inputs = [source_file]
+        if source_file.suffix.lower() != ".json":
+            assoc_json = source_file.with_suffix(".json")
+            if assoc_json.exists():
+                stage_inputs.append(assoc_json)
+        source_dir = source_file.parent
+        default_output_path = source_file.parent
+        working_input, staged_to_original = _stage_rename_single_file(source_file)
+    else:
+        source_dir = _collect_first_existing_dir(paths, ["source_dir", "input_dir", "input_path"])
+        if source_dir is None:
+            raise ValueError("source_dir 不能为空")
+        stage_inputs = [
+            p
+            for p in sorted(source_dir.iterdir(), key=lambda p: str(p))
+            if p.is_file() and (p.suffix.lower() in _IMAGE_EXTENSIONS or p.suffix.lower() == ".json")
+        ]
+        if not stage_inputs:
+            raise ValueError("source_dir 中没有可处理的文件")
+        default_output_path = source_dir
+        deduped_stage_inputs: list[Path] = []
+        seen_inputs: set[str] = set()
+        for file_path in stage_inputs:
+            marker = str(file_path)
+            if marker not in seen_inputs:
+                seen_inputs.add(marker)
+                deduped_stage_inputs.append(file_path)
+        stage_inputs = deduped_stage_inputs
+        working_input, staged_to_original = _stage_files_with_ascii_names(stage_inputs, "rename2")
+    process_output_dir = Path(tempfile.mkdtemp(prefix="rename2_out_"))
 
     backup_path = ""
     if mode == "safe_copy":
@@ -523,18 +825,39 @@ def _run_rename(paths: dict[str, Any], params: dict[str, Any], mode: str, backup
     else:
         if not backup_dir:
             raise ValueError("原地修改模式必须提供 backup_dir")
-        backup_session = _backup_directories("rename2", [source_dir], backup_dir, log)
+        backup_session = _backup_files(stage_inputs, backup_dir, "rename2") if input_mode == "file" else _backup_directories("rename2", [source_dir], backup_dir, log)
         backup_path = str(backup_session)
-        target_dir = source_dir
+        target_dir = process_output_dir
 
-    lines = _run_with_captured_stdout(log, process, str(source_dir), str(target_dir), prefix)
-    success, fail, skipped = _counts_from_rename(lines)
+    try:
+        lines = _run_with_captured_stdout(log, process, str(working_input), str(process_output_dir), prefix)
+        success, fail, skipped = _counts_from_rename(lines)
+
+        if mode == "safe_copy":
+            _restore_outputs_to_dir(
+                process_output_dir,
+                staged_to_original,
+                target_dir,
+                prefix=prefix,
+                output_name_builder=lambda original_path, _: f"{prefix}{original_path.name}",
+            )
+        else:
+            _restore_outputs_back(
+                process_output_dir,
+                staged_to_original,
+                prefix=prefix,
+                output_name_builder=lambda original_path, _: f"{prefix}{original_path.name}",
+            )
+    finally:
+        shutil.rmtree(process_output_dir, ignore_errors=True)
+        shutil.rmtree(working_input, ignore_errors=True)
+
     return {
         "status": "success",
         "success_count": success,
         "fail_count": fail,
         "skipped_count": skipped,
-        "output_path": str(target_dir),
+        "output_path": str(target_dir if mode == "safe_copy" else default_output_path),
         "backup_path": backup_path,
         "error": "",
     }
@@ -546,14 +869,9 @@ def _run_select_diverse(
     module = _load_script_module("script_select_diverse", "select_diverse.py")
     select = module.select_diverse_images
 
-    input_mode = str(paths.get("input_mode", "folder")).strip().lower()
-    source_path = _first_existing_path_from_mapping(paths, ["input_file", "source_file", "input_path", "file_path", "input_dir", "source_dir"])
-    if source_path is None:
-        raise ValueError("未找到有效输入路径")
-    if input_mode == "file" and not source_path.is_file():
-        raise ValueError("文件模式下必须提供有效的单个输入文件路径")
-    if input_mode != "file" and not source_path.is_dir():
-        raise ValueError("输入目录无效")
+    input_mode, mode_warnings = _normalize_input_mode(paths.get("input_mode", "folder"))
+    for warning in mode_warnings:
+        log("warn", warning)
 
     try:
         select_ratio = float(params.get("select_ratio", 0.1))
@@ -585,21 +903,40 @@ def _run_select_diverse(
         log("warn", "已提供 target_count，将优先忽略 select_ratio。")
 
     if input_mode == "file":
-        working_input, _ = _stage_single_file(source_path, "select_diverse")
-        inplace_output_path = source_path.parent
+        source_files = [
+            p
+            for p in _collect_existing_paths(paths, ["input_file", "source_file", "input_path", "file_path", "input_dir", "source_dir"])
+            if p.is_file() and p.suffix.lower() in _PNG_EXTENSIONS
+        ]
+        if not source_files:
+            source_dir = _collect_first_existing_dir(paths, ["input_dir", "source_dir", "input_path"])
+            if source_dir is not None:
+                source_files = [p for p in sorted(source_dir.iterdir(), key=lambda p: str(p)) if p.is_file() and p.suffix.lower() in _PNG_EXTENSIONS]
+        if not source_files:
+            raise ValueError("文件模式下必须提供有效的 PNG 文件")
+        working_input, staged_to_original = _stage_files_with_ascii_names(source_files, "select_diverse")
+        source_roots = sorted({p.parent for p in source_files}, key=lambda p: str(p))
+        inplace_output_path = source_files[0].parent
     else:
-        working_input = source_path
+        source_path = _collect_first_existing_dir(paths, ["input_dir", "source_dir", "input_path"])
+        if source_path is None:
+            raise ValueError("输入目录无效")
+        source_files = [p for p in sorted(source_path.iterdir(), key=lambda p: str(p)) if p.is_file() and p.suffix.lower() in _PNG_EXTENSIONS]
+        if not source_files:
+            raise ValueError("输入目录无效")
+        working_input, staged_to_original = _stage_files_with_ascii_names(source_files, "select_diverse")
+        source_roots = [source_path]
         inplace_output_path = source_path
 
     backup_path = ""
     if mode == "safe_copy":
-        output_dir = _ensure_safe_output_dir(str(paths.get("output_dir", "")), [source_path], "output_dir")
-        process_output_dir = output_dir
+        output_dir = _ensure_safe_output_dir(str(paths.get("output_dir", "")), source_roots, "output_dir")
+        process_output_dir = Path(tempfile.mkdtemp(prefix="select_diverse_out_"))
         result_output_path = output_dir
     else:
         if not backup_dir:
             raise ValueError("原地修改模式必须提供 backup_dir")
-        backup_session = _backup_single_file(source_path, backup_dir, "select_diverse") if input_mode == "file" else _backup_directories("select_diverse", [source_path], backup_dir, log)
+        backup_session = _backup_files(source_files, backup_dir, "select_diverse") if input_mode == "file" else _backup_directories("select_diverse", [inplace_output_path], backup_dir, log)
         backup_path = str(backup_session)
         process_output_dir = Path(tempfile.mkdtemp(prefix="select_diverse_out_"))
         result_output_path = inplace_output_path
@@ -637,17 +974,12 @@ def _run_select_diverse(
                 skipped = 0
 
         if mode == "in_place":
-            if input_mode == "file":
-                produced = next((p for p in process_output_dir.iterdir() if p.is_file()), None)
-                if produced is not None:
-                    shutil.copy2(produced, source_path)
-            else:
-                _copy_all_files(process_output_dir, source_path)
+            _restore_outputs_back(process_output_dir, staged_to_original)
+        else:
+            _restore_outputs_to_dir(process_output_dir, staged_to_original, result_output_path)
     finally:
-        if mode == "in_place":
-            shutil.rmtree(process_output_dir, ignore_errors=True)
-        if input_mode == "file":
-            shutil.rmtree(working_input, ignore_errors=True)
+        shutil.rmtree(process_output_dir, ignore_errors=True)
+        shutil.rmtree(working_input, ignore_errors=True)
 
     return {
         "status": "success",
@@ -682,12 +1014,18 @@ def _select_diverse_compat_fallback(input_dir: Path, output_dir: Path, select_ra
 
 
 def _run_json_path(paths: dict[str, Any], mode: str, backup_dir: str, log: LogFn) -> dict[str, Any]:
-    json_dir = _normalize_dir(str(paths.get("json_dir", "")), "json_dir", must_exist=True)
-    image_dir = _normalize_dir(str(paths.get("image_dir", "")), "image_dir", must_exist=True)
-
     script_path = _project_root() / "script" / "更改json路径.py"
     if not script_path.exists():
         raise FileNotFoundError(f"未找到脚本: {script_path}")
+
+    input_mode, mode_warnings = _normalize_input_mode(paths.get("input_mode", "folder"))
+    for warning in mode_warnings:
+        log("warn", warning)
+
+    image_path = _first_existing_path_from_mapping(paths, ["image_dir", "image_file", "image_path"])
+    if image_path is None:
+        raise ValueError("image_dir 不能为空")
+    image_dir = image_path if image_path.is_dir() else image_path.parent
 
     def run_script(target_json_dir: Path) -> list[str]:
         cmd = [sys.executable, str(script_path), str(target_json_dir), str(image_dir)]
@@ -714,18 +1052,265 @@ def _run_json_path(paths: dict[str, Any], mode: str, backup_dir: str, log: LogFn
         return lines
 
     backup_path = ""
+    if input_mode == "file":
+        source_json = _first_existing_path_from_mapping(paths, ["json_file", "input_file", "source_file", "input_path", "file_path", "json_dir"])
+        if source_json is None or not source_json.is_file() or source_json.suffix.lower() != ".json":
+            json_dir_candidate = _collect_first_existing_dir(paths, ["json_dir", "source_dir", "input_dir"])
+            if json_dir_candidate is not None:
+                json_candidates = [p for p in sorted(json_dir_candidate.iterdir(), key=lambda p: str(p)) if p.is_file() and p.suffix.lower() == ".json"]
+                source_json = json_candidates[0] if json_candidates else None
+        if source_json is None:
+            raise ValueError("文件模式下必须提供有效的单个 JSON 文件")
+
+        working_input = Path(tempfile.mkdtemp(prefix="json_path_stage_"))
+        staged_json = working_input / source_json.name
+        shutil.copy2(source_json, staged_json)
+        staged_to_original = {staged_json.name: source_json}
+        result_output_path = source_json.parent
+
+        if mode == "safe_copy":
+            output_dir = _ensure_safe_output_dir(str(paths.get("output_dir", "")), [source_json.parent], "output_dir")
+            output_path = output_dir
+        else:
+            if not backup_dir:
+                raise ValueError("原地修改模式必须提供 backup_dir")
+            backup_session = _backup_files([source_json], backup_dir, "json_path")
+            backup_path = str(backup_session)
+            output_path = result_output_path
+
+        try:
+            lines = run_script(working_input)
+            if mode == "safe_copy":
+                _restore_outputs_to_dir(working_input, staged_to_original, output_path)
+            else:
+                _restore_outputs_back(working_input, staged_to_original)
+        finally:
+            shutil.rmtree(working_input, ignore_errors=True)
+    else:
+        json_dir = _collect_first_existing_dir(paths, ["json_dir", "source_dir", "input_dir", "input_path"])
+        if json_dir is None:
+            raise ValueError("json_dir 不能为空")
+
+        if mode == "safe_copy":
+            output_dir = _ensure_safe_output_dir(str(paths.get("output_dir", "")), [json_dir], "output_dir")
+            _copy_json_workspace(json_dir, output_dir, log)
+            lines = run_script(output_dir)
+            output_path = output_dir
+        else:
+            if not backup_dir:
+                raise ValueError("原地修改模式必须提供 backup_dir")
+            backup_session = _backup_directories("json_path", [json_dir], backup_dir, log)
+            backup_path = str(backup_session)
+            lines = run_script(json_dir)
+            output_path = json_dir
+
+    success, fail, skipped = _counts_from_json(lines)
+    return {
+        "status": "success",
+        "success_count": success,
+        "fail_count": fail,
+        "skipped_count": skipped,
+        "output_path": str(output_path),
+        "backup_path": backup_path,
+        "error": "",
+    }
+
+
+def _run_rename_v2(paths: dict[str, Any], params: dict[str, Any], mode: str, backup_dir: str, log: LogFn) -> dict[str, Any]:
+    module = _load_script_module("script_rename2", "rename2.py")
+    process = module.process_files_and_rename
+
+    input_mode, mode_warnings = _normalize_input_mode(paths.get("input_mode", "folder"))
+    prefix = str(params.get("prefix", "")).strip()
+    if not prefix:
+        raise ValueError("prefix 不能为空")
+    if any(c in prefix for c in r'\/:*?"<>|'):
+        raise ValueError(r'prefix 不能包含字符: \ / : * ? " < > |')
+
+    for warning in mode_warnings:
+        log("warn", warning)
+
+    if input_mode == "file":
+        source_files = [
+            p
+            for p in _collect_existing_paths(paths, ["input_file", "source_file", "input_path", "file_path", "input_dir", "source_dir", "json_file"])
+            if p.is_file() and (p.suffix.lower() in _IMAGE_EXTENSIONS or p.suffix.lower() == ".json")
+        ]
+        if not source_files:
+            source_dir = _collect_first_existing_dir(paths, ["input_dir", "source_dir", "input_path"])
+            if source_dir is not None:
+                source_files = [
+                    p
+                    for p in sorted(source_dir.iterdir(), key=lambda p: str(p))
+                    if p.is_file() and (p.suffix.lower() in _IMAGE_EXTENSIONS or p.suffix.lower() == ".json")
+                ]
+        if not source_files:
+            raise ValueError("文件模式下必须提供有效输入文件")
+
+        stage_inputs: list[Path] = []
+        for source_file in source_files:
+            stage_inputs.append(source_file)
+            if source_file.suffix.lower() != ".json":
+                assoc_json = source_file.with_suffix(".json")
+                if assoc_json.exists():
+                    stage_inputs.append(assoc_json)
+        stage_inputs = list(dict.fromkeys(stage_inputs))
+        source_roots = sorted({p.parent for p in stage_inputs}, key=lambda p: str(p))
+        default_output_path = source_roots[0]
+    else:
+        source_dir = _collect_first_existing_dir(paths, ["source_dir", "input_dir", "input_path"])
+        if source_dir is None:
+            raise ValueError("source_dir 不能为空")
+        stage_inputs = [
+            p
+            for p in sorted(source_dir.iterdir(), key=lambda p: str(p))
+            if p.is_file() and (p.suffix.lower() in _IMAGE_EXTENSIONS or p.suffix.lower() == ".json")
+        ]
+        if not stage_inputs:
+            raise ValueError("source_dir 中没有可处理文件")
+        stage_inputs = list(dict.fromkeys(stage_inputs))
+        source_roots = [source_dir]
+        default_output_path = source_dir
+
+    working_input, staged_to_original = _stage_files_with_ascii_names(stage_inputs, "rename2")
+    process_output_dir = Path(tempfile.mkdtemp(prefix="rename2_out_"))
+
+    backup_path = ""
     if mode == "safe_copy":
-        output_dir = _ensure_safe_output_dir(str(paths.get("output_dir", "")), [json_dir], "output_dir")
-        _copy_json_workspace(json_dir, output_dir, log)
-        lines = run_script(output_dir)
-        output_path = output_dir
+        target_dir = _ensure_safe_output_dir(str(paths.get("target_dir", "")), source_roots, "target_dir")
     else:
         if not backup_dir:
             raise ValueError("原地修改模式必须提供 backup_dir")
-        backup_session = _backup_directories("json_path", [json_dir], backup_dir, log)
+        backup_session = _backup_files(stage_inputs, backup_dir, "rename2") if input_mode == "file" else _backup_directories("rename2", source_roots, backup_dir, log)
         backup_path = str(backup_session)
-        lines = run_script(json_dir)
-        output_path = json_dir
+        target_dir = process_output_dir
+
+    try:
+        lines = _run_with_captured_stdout(log, process, str(working_input), str(process_output_dir), prefix)
+        success, fail, skipped = _counts_from_rename(lines)
+
+        if mode == "safe_copy":
+            _restore_outputs_to_dir(
+                process_output_dir,
+                staged_to_original,
+                target_dir,
+                prefix=prefix,
+                output_name_builder=lambda original_path, _: f"{prefix}{original_path.name}",
+            )
+        else:
+            _restore_outputs_back(
+                process_output_dir,
+                staged_to_original,
+                prefix=prefix,
+                output_name_builder=lambda original_path, _: f"{prefix}{original_path.name}",
+            )
+    finally:
+        shutil.rmtree(process_output_dir, ignore_errors=True)
+        shutil.rmtree(working_input, ignore_errors=True)
+
+    return {
+        "status": "success",
+        "success_count": success,
+        "fail_count": fail,
+        "skipped_count": skipped,
+        "output_path": str(target_dir if mode == "safe_copy" else default_output_path),
+        "backup_path": backup_path,
+        "error": "",
+    }
+
+
+def _run_json_path_v2(paths: dict[str, Any], mode: str, backup_dir: str, log: LogFn) -> dict[str, Any]:
+    script_path = _resolve_json_path_script()
+
+    input_mode, mode_warnings = _normalize_input_mode(paths.get("input_mode", "folder"))
+    for warning in mode_warnings:
+        log("warn", warning)
+
+    image_path = _first_existing_path_from_mapping(paths, ["image_dir", "image_file", "image_path"])
+    if image_path is None:
+        raise ValueError("image_dir 不能为空")
+    image_dir = image_path if image_path.is_dir() else image_path.parent
+
+    def run_script(target_json_dir: Path) -> list[str]:
+        cmd = [sys.executable, str(script_path), str(target_json_dir), str(image_dir)]
+        env = dict(os.environ)
+        env["PYTHONIOENCODING"] = "utf-8"
+        env["PYTHONUTF8"] = "1"
+        completed = subprocess.run(
+            cmd,
+            cwd=str(_project_root()),
+            env=env,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+        merged: list[str] = []
+        merged.extend(completed.stdout.splitlines())
+        merged.extend(completed.stderr.splitlines())
+        lines = [x.rstrip() for x in merged if x.strip()]
+        _log_lines(lines, log)
+        if completed.returncode != 0:
+            tail = "\n".join(lines[-12:]) if lines else ""
+            raise RuntimeError(f"json_path 脚本执行失败，退出码 {completed.returncode}\n{tail}")
+        return lines
+
+    backup_path = ""
+    if input_mode == "file":
+        source_jsons = [
+            p
+            for p in _collect_existing_paths(paths, ["json_file", "input_file", "source_file", "input_path", "file_path", "json_dir"])
+            if p.is_file() and p.suffix.lower() == ".json"
+        ]
+        if not source_jsons:
+            json_dir_candidate = _collect_first_existing_dir(paths, ["json_dir", "source_dir", "input_dir"])
+            if json_dir_candidate is not None:
+                source_jsons = [
+                    p for p in sorted(json_dir_candidate.iterdir(), key=lambda p: str(p)) if p.is_file() and p.suffix.lower() == ".json"
+                ]
+        if not source_jsons:
+            raise ValueError("文件模式下必须提供有效的 JSON 文件")
+
+        source_jsons = list(dict.fromkeys(source_jsons))
+        source_roots = sorted({p.parent for p in source_jsons}, key=lambda p: str(p))
+        result_output_path = source_roots[0]
+
+        working_input, staged_to_original = _stage_files_with_ascii_names(source_jsons, "json_path")
+        if mode == "safe_copy":
+            output_dir = _ensure_safe_output_dir(str(paths.get("output_dir", "")), source_roots, "output_dir")
+            output_path = output_dir
+        else:
+            if not backup_dir:
+                raise ValueError("原地修改模式必须提供 backup_dir")
+            backup_session = _backup_files(source_jsons, backup_dir, "json_path")
+            backup_path = str(backup_session)
+            output_path = result_output_path
+
+        try:
+            lines = run_script(working_input)
+            if mode == "safe_copy":
+                _restore_outputs_to_dir(working_input, staged_to_original, output_path)
+            else:
+                _restore_outputs_back(working_input, staged_to_original)
+        finally:
+            shutil.rmtree(working_input, ignore_errors=True)
+    else:
+        json_dir = _collect_first_existing_dir(paths, ["json_dir", "source_dir", "input_dir", "input_path"])
+        if json_dir is None:
+            raise ValueError("json_dir 不能为空")
+
+        if mode == "safe_copy":
+            output_dir = _ensure_safe_output_dir(str(paths.get("output_dir", "")), [json_dir], "output_dir")
+            _copy_json_workspace(json_dir, output_dir, log)
+            lines = run_script(output_dir)
+            output_path = output_dir
+        else:
+            if not backup_dir:
+                raise ValueError("原地修改模式必须提供 backup_dir")
+            backup_session = _backup_directories("json_path", [json_dir], backup_dir, log)
+            backup_path = str(backup_session)
+            lines = run_script(json_dir)
+            output_path = json_dir
 
     success, fail, skipped = _counts_from_json(lines)
     return {
@@ -758,9 +1343,9 @@ def execute_task(payload: dict[str, Any], log: LogFn) -> dict[str, Any]:
     if task == "bgr2rgb":
         return _run_bgr2rgb(paths, params, mode, backup_dir, log)
     if task == "rename2":
-        return _run_rename(paths, params, mode, backup_dir, log)
+        return _run_rename_v2(paths, params, mode, backup_dir, log)
     if task == "select_diverse":
         return _run_select_diverse(paths, params, mode, backup_dir, log)
     if task == "json_path":
-        return _run_json_path(paths, mode, backup_dir, log)
+        return _run_json_path_v2(paths, mode, backup_dir, log)
     raise ValueError(f"不支持的 task: {task}")
