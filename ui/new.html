@@ -1121,7 +1121,11 @@
         if (!hasApi()) return;
         try {
             const res = await window.pywebview.api.check_model_status();
-            if (!res.ok) return;
+            console.log("模型检测结果:", res);
+            if (!res.ok) {
+                console.error("API返回错误:", res.error);
+                return;
+            }
 
             const container = $("modelStatusContainer");
             if (!container) return;
@@ -1132,7 +1136,7 @@
                 if (btn) btn.disabled = true;
             } else {
                 container.innerHTML = `
-                    <span style="color:#f59e0b;font-size:13px;">⚠ 抠图模型未下载</span>
+                    <span style="color:#f59e0b;font-size:13px;">⚠ 抠图模型未下载 (u2net:${res.u2net}, u2net_small:${res.u2net_small})</span>
                     <button class="model-download-btn" onclick="downloadModel()" style="margin-left:12px;padding:4px 12px;font-size:12px;background:#3b82f6;color:#fff;border:none;border-radius:4px;cursor:pointer;">下载模型</button>
                 `;
             }
