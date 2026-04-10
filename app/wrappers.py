@@ -1604,18 +1604,17 @@ def _process_single_synthesize(
 ) -> bool:
     """处理单张背景图的合成"""
 
-    # 加载背景图
-    bg_img = cv2.imread(str(bg_path), cv2.IMREAD_UNCHANGED)
+    # 加载背景图 - 强制转换为 BGR
+    bg_img = cv2.imread(str(bg_path), cv2.IMREAD_COLOR)
     if bg_img is None:
         return False
 
-    # 转换为 BGRA
+    # 转换为 BGRA (4通道)
     if len(bg_img.shape) == 2:
         bg_img = cv2.cvtColor(bg_img, cv2.COLOR_GRAY2BGRA)
     elif bg_img.shape[2] == 3:
         bg_img = cv2.cvtColor(bg_img, cv2.COLOR_BGR2BGRA)
-    else:
-        bg_img = cv2.cvtColor(bg_img, cv2.COLOR_RGBA2BGRA)
+    # 如果已经是 4 通道，假设是 BGRA 格式，直接使用
 
     # 解析 JSON 获取 grass 和 obstacles 区域
     with open(json_path, "r", encoding="utf-8") as f:
@@ -1727,12 +1726,13 @@ def _get_or_create_object_cache(
                     img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGRA)
                 elif img.shape[2] == 3:
                     img = cv2.cvtColor(img, cv2.COLOR_BGR2BGRA)
+                # 如果是 4 通道，直接使用
                 return img
         except Exception:
             pass
 
-    # 加载图片
-    img = cv2.imread(str(source_path), cv2.IMREAD_UNCHANGED)
+    # 加载图片 - 强制转换为 BGR
+    img = cv2.imread(str(source_path), cv2.IMREAD_COLOR)
     if img is None:
         return None
 
@@ -1741,8 +1741,7 @@ def _get_or_create_object_cache(
         img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGRA)
     elif img.shape[2] == 3:
         img = cv2.cvtColor(img, cv2.COLOR_BGR2BGRA)
-    elif img.shape[2] == 4:
-        img = cv2.cvtColor(img, cv2.COLOR_RGBA2BGRA)
+    # 如果已经是 4 通道，假设是 BGRA 格式，直接使用
 
     h, w = img.shape[:2]
 
@@ -1870,11 +1869,17 @@ def _place_object_on_grass(
         min_x, max_x = 0, bg_w
         min_y, max_y = bg_h // 3, bg_h
 
+    # 检查有效区域是否足够放置物体
+    if max_x - obj_w < min_x or max_y - obj_h < min_y:
+        # 区域太小，回退到整图
+        min_x, max_x = 0, bg_w
+        min_y, max_y = 0, bg_h
+
     max_attempts = 50
     for attempt in range(max_attempts):
         # 随机位置
-        x1 = random.randint(int(min_x), max(1, int(max_x - obj_w)))
-        y1 = random.randint(int(min_y), max(1, int(max_y - obj_h)))
+        x1 = random.randint(int(min_x), max(int(min_x) + 1, int(max_x - obj_w)))
+        y1 = random.randint(int(min_y), max(int(min_y) + 1, int(max_y - obj_h)))
         x2 = x1 + obj_w
         y2 = y1 + obj_h
         candidate_bbox = (x1, y1, x2, y2)
