@@ -157,8 +157,8 @@ class ApiBridge:
             home = Path.home()
             u2net_dir = home / ".u2net"
 
-            u2net_exists = (u2net_dir / "u2net.pth").exists()
-            u2net_small_exists = (u2net_dir / "u2net_small.pth").exists()
+            u2net_exists = (u2net_dir / "u2net.onnx").exists()
+            u2net_small_exists = (u2net_dir / "u2net_small.onnx").exists()
 
             return {
                 "ok": True,
