@@ -40,6 +40,9 @@ class ApiBridge:
     def get_task_logs(self, task_id: str, from_index: int = 0) -> dict[str, Any]:
         return self.task_manager.get_logs(task_id, from_index=from_index)
 
+    def cancel_task(self, task_id: str) -> dict[str, Any]:
+        return self.task_manager.cancel_task(task_id)
+
     def select_folder(self) -> str:
         if self.window is None or webview is None:
             return ""
@@ -145,6 +148,33 @@ class ApiBridge:
                 "settings": settings,
                 "path": str(self.settings_store.path),
             }
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def check_model_status(self) -> dict[str, Any]:
+        """检查 u2net 模型是否已下载"""
+        try:
+            home = Path.home()
+            u2net_dir = home / ".u2net"
+
+            u2net_exists = (u2net_dir / "u2net.pth").exists()
+            u2net_small_exists = (u2net_dir / "u2net_small.pth").exists()
+
+            return {
+                "ok": True,
+                "u2net": u2net_exists,
+                "u2net_small": u2net_small_exists,
+                "both": u2net_exists and u2net_small_exists,
+            }
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def download_model(self, model_name: str = "u2net") -> dict[str, Any]:
+        """下载 rembg 模型"""
+        try:
+            from rembg import download
+            download.download_model(model_name=model_name)
+            return {"ok": True}
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
 

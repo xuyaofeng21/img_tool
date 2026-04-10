@@ -201,6 +201,9 @@
         /* ========== 表单 (任务配置) ========== */
         .form-group { margin-bottom: 16px; }
         .form-group:last-child { margin-bottom: 0; }
+        .form-row { display: flex; gap: 16px; margin-bottom: 16px; }
+        .form-row:last-child { margin-bottom: 0; }
+        .form-row .form-group { margin-bottom: 0; }
         .label-row { display: flex; justify-content: space-between; margin-bottom: 8px; }
         label { font-size: 13px; font-weight: 500; color: var(--text-main); }
         .hint { font-size: 12px; color: var(--text-muted); }
@@ -822,6 +825,8 @@
 
                     state.activeTask = k;
                     renderAll();
+                    // 合成任务检查模型状态
+                    if (k === "synthesize") checkModelStatus();
                     // 恢复之前保存的数据
                     restoreTaskLogs(k);
                     restoreTaskResult(k);
@@ -948,11 +953,44 @@
             `);
         }
 
+        // 合成任务显示模型状态
+        if (state.activeTask === "synthesize") {
+            html.push(`
+                <div id="modelStatusContainer" style="padding: 12px 16px; background: var(--bg-surface); border: 1px solid var(--border-color); border-radius: var(--radius-md); margin-bottom: 20px; display: flex; align-items: center; justify-content: space-between;">
+                    <span style="font-size:13px;color:var(--text-muted);">抠图模型:</span>
+                    <span style="font-size:13px;color:var(--text-muted);">检测中...</span>
+                </div>
+            `);
+        }
+
         if (t.params.length > 0) {
             html.push(`<hr style="border:0; border-top:1px dashed var(--border-color); margin: 24px 0;">`);
+            // 分行渲染参数，每行最多2个
+            const paramRows = [];
+            let currentRow = [];
             t.params.forEach(p => {
-                const val = ts.params[p.key] ?? p.default ?? "";
                 if (p.type === "radio") {
+                    // radio类型单独一行
+                    if (currentRow.length > 0) {
+                        paramRows.push(currentRow);
+                        currentRow = [];
+                    }
+                    paramRows.push([p]);
+                } else {
+                    if (currentRow.length >= 2) {
+                        paramRows.push(currentRow);
+                        currentRow = [];
+                    }
+                    currentRow.push(p);
+                }
+            });
+            if (currentRow.length > 0) paramRows.push(currentRow);
+
+            paramRows.forEach(row => {
+                if (row.length === 1 && row[0].type === "radio") {
+                    // radio类型单独一行
+                    const p = row[0];
+                    const val = ts.params[p.key] ?? p.default ?? "";
                     const opts = p.options.map(opt => `
                         <label class="radio-box ${val === opt.value ? 'active' : ''}" style="padding: 8px 14px;">
                             <input type="radio" name="${escapeAttr(p.key)}" value="${escapeAttr(opt.value)}" ${val === opt.value ? 'checked' : ''} ${state.running ? 'disabled' : ''}>
@@ -961,12 +999,18 @@
                     `).join("");
                     html.push(`<div class="form-group"><div class="label-row"><label>${escapeHtml(p.label)}</label><span class="hint">${escapeHtml(p.hint)}</span></div><div class="radio-grid">${opts}</div></div>`);
                 } else {
-                    html.push(`
-                        <div class="form-group">
-                            <div class="label-row"><label>${escapeHtml(p.label)}</label><span class="hint">${escapeHtml(p.hint)}</span></div>
-                            <input type="${p.type}" data-kind="param" data-key="${escapeAttr(p.key)}" placeholder="${escapeAttr(p.placeholder || '')}" value="${escapeAttr(String(val))}" ${p.step ? `step="${escapeAttr(p.step)}"` : ''} ${p.min !== undefined ? `min="${p.min}"` : ''} ${p.max !== undefined ? `max="${p.max}"` : ''} ${state.running ? 'disabled' : ''}>
-                        </div>
-                    `);
+                    // 每行2个参数
+                    html.push(`<div class="form-row">`);
+                    row.forEach(p => {
+                        const val = ts.params[p.key] ?? p.default ?? "";
+                        html.push(`
+                            <div class="form-group" style="flex:1; min-width:0;">
+                                <div class="label-row"><label>${escapeHtml(p.label)}</label><span class="hint">${escapeHtml(p.hint)}</span></div>
+                                <input type="${p.type}" data-kind="param" data-key="${escapeAttr(p.key)}" placeholder="${escapeAttr(p.placeholder || '')}" value="${escapeAttr(String(val))}" ${p.step ? `step="${escapeAttr(p.step)}"` : ''} ${p.min !== undefined ? `min="${p.min}"` : ''} ${p.max !== undefined ? `max="${p.max}"` : ''} ${state.running ? 'disabled' : ''}>
+                            </div>
+                        `);
+                    });
+                    html.push(`</div>`);
                 }
             });
         }
@@ -1062,12 +1106,66 @@
     function log(lvl, txt) {
         const b = $("terminalLog"), d = document.createElement("div");
         d.className = `log-line log-${lvl}`; d.textContent = txt;
-        b.appendChild(d); b.scrollTop = b.scrollHeight;
+        b.appendChild(d); b.scrollBottom = b.scrollTop = b.scrollHeight;
         // 保存到当前任务的日志
         if (!state.running) return;
         const s = state.formData[state.activeTask];
         if (!s.logs) s.logs = [];
         s.logs.push({ lvl, txt });
+    }
+
+    // 模型状态检测与下载
+    let modelDownloading = false;
+
+    async function checkModelStatus() {
+        if (!hasApi()) return;
+        try {
+            const res = await window.pywebview.api.check_model_status();
+            if (!res.ok) return;
+
+            const container = $("modelStatusContainer");
+            if (!container) return;
+
+            if (res.both) {
+                container.innerHTML = `<span style="color:#22c55e;font-size:13px;">✓ 模型已就绪</span>`;
+                const btn = container.querySelector(".model-download-btn");
+                if (btn) btn.disabled = true;
+            } else {
+                container.innerHTML = `
+                    <span style="color:#f59e0b;font-size:13px;">⚠ 抠图模型未下载</span>
+                    <button class="model-download-btn" onclick="downloadModel()" style="margin-left:12px;padding:4px 12px;font-size:12px;background:#3b82f6;color:#fff;border:none;border-radius:4px;cursor:pointer;">下载模型</button>
+                `;
+            }
+        } catch(e) {
+            console.error("检查模型状态失败:", e);
+        }
+    }
+
+    async function downloadModel() {
+        if (modelDownloading || !hasApi()) return;
+        const btn = document.querySelector(".model-download-btn");
+        if (btn) { btn.disabled = true; btn.textContent = "下载中..."; }
+        modelDownloading = true;
+        log("info", "开始下载抠图模型 (u2net + u2net_small)...");
+        try {
+            const res = await window.pywebview.api.download_model("u2net");
+            if (res.ok) {
+                const res2 = await window.pywebview.api.download_model("u2net_small");
+                if (res2.ok) {
+                    log("info", "模型下载完成");
+                    checkModelStatus();
+                } else {
+                    log("error", "下载 u2net_small 失败: " + (res2.error || "未知错误"));
+                }
+            } else {
+                log("error", "下载 u2net 失败: " + (res.error || "未知错误"));
+            }
+        } catch(e) {
+            log("error", "下载异常: " + e.message);
+        } finally {
+            modelDownloading = false;
+            if (btn) { btn.textContent = "下载模型"; }
+        }
     }
 
     function updateMetrics(s) {
