@@ -825,8 +825,8 @@
 
                     state.activeTask = k;
                     renderAll();
-                    // 合成任务检查模型状态
-                    if (k === "synthesize") checkModelStatus();
+                    // 合成任务检查模型状态（延迟到DOM更新后）
+                    if (k === "synthesize") requestAnimationFrame(() => requestAnimationFrame(checkModelStatus));
                     // 恢复之前保存的数据
                     restoreTaskLogs(k);
                     restoreTaskResult(k);
