@@ -19,7 +19,7 @@ import cv2
 import imagehash
 import numpy as np
 from PIL import Image
-from shapely.geometry import Polygon, MultiPolygon
+from shapely.geometry import Polygon, MultiPolygon, box
 from shapely.ops import unary_union
 
 
@@ -1603,7 +1603,6 @@ def _process_single_synthesize(
     log: LogFn,
 ) -> bool:
     """处理单张背景图的合成"""
-    from shapely.geometry import Polygon
 
     # 加载背景图
     bg_img = cv2.imread(str(bg_path), cv2.IMREAD_UNCHANGED)
@@ -1817,7 +1816,6 @@ def _place_object_on_grass(
     log: LogFn,
 ) -> tuple[bool, tuple | None]:
     """将物体放置在草地上"""
-    from shapely.geometry import box
 
     obj_h, obj_w = object_img.shape[:2]
     bg_h, bg_w = bg_img.shape[:2]
