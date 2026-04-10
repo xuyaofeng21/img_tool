@@ -1722,6 +1722,11 @@ def _get_or_create_object_cache(
         try:
             img = cv2.imread(cache_path, cv2.IMREAD_UNCHANGED)
             if img is not None:
+                # 确保缓存图片是 4 通道
+                if len(img.shape) == 2:
+                    img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGRA)
+                elif img.shape[2] == 3:
+                    img = cv2.cvtColor(img, cv2.COLOR_BGR2BGRA)
                 return img
         except Exception:
             pass
@@ -1731,7 +1736,10 @@ def _get_or_create_object_cache(
     if img is None:
         return None
 
-    if img.shape[2] == 3:
+    # 确保是 4 通道 BGRA
+    if len(img.shape) == 2:
+        img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGRA)
+    elif img.shape[2] == 3:
         img = cv2.cvtColor(img, cv2.COLOR_BGR2BGRA)
     elif img.shape[2] == 4:
         img = cv2.cvtColor(img, cv2.COLOR_RGBA2BGRA)
@@ -1827,6 +1835,18 @@ def _place_object_on_grass(
 ) -> tuple[bool, tuple | None]:
     """将物体放置在草地上"""
 
+    # 确保物体图片是 4 通道
+    if len(object_img.shape) == 2:
+        object_img = cv2.cvtColor(object_img, cv2.COLOR_GRAY2BGRA)
+    elif object_img.shape[2] == 3:
+        object_img = cv2.cvtColor(object_img, cv2.COLOR_BGR2BGRA)
+
+    # 确保背景图片是 4 通道
+    if len(bg_img.shape) == 2:
+        bg_img = cv2.cvtColor(bg_img, cv2.COLOR_GRAY2BGRA)
+    elif bg_img.shape[2] == 3:
+        bg_img = cv2.cvtColor(bg_img, cv2.COLOR_BGR2BGRA)
+
     obj_h, obj_w = object_img.shape[:2]
     bg_h, bg_w = bg_img.shape[:2]
 
@@ -1892,6 +1912,15 @@ def _place_object_on_grass(
 def _create_polygon_from_object(object_img: "np.ndarray", bbox: tuple, label: str) -> dict:
     """从物体图像创建多边形标注"""
     x1, y1, _, _ = bbox
+
+    # 确保图片是 4 通道
+    if len(object_img.shape) == 2:
+        # 灰度图转 BGRA
+        object_img = cv2.cvtColor(object_img, cv2.COLOR_GRAY2BGRA)
+    elif object_img.shape[2] == 3:
+        # 3通道转4通道
+        object_img = cv2.cvtColor(object_img, cv2.COLOR_BGR2BGRA)
+
     alpha_channel = object_img[:, :, 3]
     _, binary_mask = cv2.threshold(alpha_channel, 127, 255, cv2.THRESH_BINARY)
 
