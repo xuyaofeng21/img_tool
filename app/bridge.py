@@ -165,8 +165,11 @@ class ApiBridge:
                 "u2net": u2net_exists,
                 "u2net_small": u2net_small_exists,
                 "both": u2net_exists and u2net_small_exists,
+                "debug": {"u2net_dir": str(u2net_dir), "files": list(u2net_dir.glob("*")) if u2net_dir.exists() else []},
             }
         except Exception as exc:
+            import traceback
+            traceback.print_exc()
             return {"ok": False, "error": str(exc)}
 
     def download_model(self, model_name: str = "u2net") -> dict[str, Any]:
