@@ -1461,6 +1461,37 @@ def _run_reorder_labels(paths: dict[str, Any], mode: str, backup_dir: str, log: 
     }
 
 
+def _get_cache_path(cache_dir: str, filename: str, mtime: float, max_size: tuple[int, int], model_name: str) -> str:
+    """生成本地缓存路径"""
+    import os
+    name_without_ext = os.path.splitext(filename)[0]
+    return os.path.join(cache_dir, f"{name_without_ext}_{mtime}_{max_size[0]}_{max_size[1]}_{model_name}.png")
+
+
+def _is_cache_valid(cache_path: str, source_mtime: float) -> bool:
+    """校验缓存是否有效"""
+    import os
+    if not os.path.exists(cache_path):
+        return False
+    cache_stat = os.stat(cache_path)
+    return cache_stat.st_mtime >= source_mtime
+
+
+def _create_alpha_mask_from_labelme(json_path: str, img_height: int, img_width: int, target_label: str) -> "np.ndarray":
+    """从 LabelMe JSON 读取指定标签的多边形，创建 alpha mask"""
+    import cv2
+    import json
+    import numpy as np
+    with open(json_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    mask = np.zeros((img_height, img_width), dtype=np.uint8)
+    for shape in data.get("shapes", []):
+        if shape.get("label") == target_label and shape.get("shape_type") == "polygon":
+            points = np.array(shape["points"], dtype=np.int32)
+            cv2.fillPoly(mask, [points], 255)
+    return mask
+
+
 def execute_task(payload: dict[str, Any], log: LogFn) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise ValueError("payload 必须是对象")
