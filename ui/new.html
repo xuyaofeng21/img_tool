@@ -463,12 +463,16 @@
                     <!-- 右半：终端日志 -->
                     <div class="card log-card">
                         <div class="card-header">
-                            <div class="card-title">终端日志</div>
-                            <button class="btn btn-icon" id="btnClearLog" title="清空日志" style="height: 26px;">
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
-                            </button>
+                            <div class="card-title">处理进度</div>
+                            <div style="display:flex;gap:8px;align-items:center;">
+                                <button class="btn btn-icon" id="btnClearLog" title="清空日志" style="height: 26px;">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                                </button>
+                            </div>
                         </div>
-                        <div class="terminal" id="terminalLog"></div>
+                        <div style="position:relative;flex:1;display:flex;flex-direction:column;overflow:hidden;">
+                            <div class="terminal" id="terminalLog"></div>
+                        </div>
                     </div>
                 </div>
 
@@ -588,6 +592,34 @@
                 { key: "output_dir", label: "输出目录", hint: "修复后 JSON 的保存位置", placeholder: "选择文件夹...", required: true, safeOnly: true }
             ],
             params: []
+        },
+        reorder_labels: {
+            supportsInputMode: true,
+            title: "标签排序", desc: "把 station 标签移到最底层，方便数字标签(1-12)的移动操作。", icon: '<path d="M3 3h18v18H3z"/><path d="M3 9h18"/><path d="M9 21V9"/>',
+            paths: [
+                { key: "input_dir", label: "JSON 目录", hint: "待处理的 JSON 文件夹", placeholder: "选择文件夹...", required: true }
+            ],
+            params: []
+        },
+        synthesize: {
+            title: "合成标注",
+            desc: "将物体图像合成到背景图中，自动更新 LabelMe JSON 标注。",
+            icon: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M9 21V9"/>',
+            supportsInputMode: false,
+            paths: [
+                { key: "source_folder", label: "源物体目录", hint: "包含待合成物体图片的目录", placeholder: "选择文件夹...", required: true },
+                { key: "bg_json_folder", label: "背景图目录", hint: "带 JSON 标注的背景图目录", placeholder: "选择文件夹...", required: true },
+                { key: "output_folder", label: "输出目录", hint: "合成结果保存位置", placeholder: "选择文件夹...", required: true, safeOnly: true }
+            ],
+            params: [
+                { key: "label", label: "标注名称", hint: "合成后物体的标注名称", placeholder: "如: 刺猬", required: true, type: "text" },
+                { key: "target_label", label: "源标注标签", hint: "从哪个标签抠图(可选)", placeholder: "如: animal", type: "text" },
+                { key: "max_objects", label: "放置数量", hint: "每张背景图放置物体数量", placeholder: "3", type: "number", step: "1", min: "1", max: "10", default: 3 },
+                { key: "max_object_size", label: "物体最大尺寸", hint: "物体最大边长(像素)", placeholder: "350", type: "number", step: "10", min: "50", max: "800", default: 350 },
+                { key: "model", label: "抠图模型", hint: "small=快, precise=准", type: "radio", default: "small", options: [ { label: "轻量(快)", value: "small" }, { label: "精准(慢)", value: "precise" } ] },
+                { key: "rotation_angle", label: "最大旋转角度", hint: "随机旋转范围", placeholder: "30", type: "number", step: "5", min: "0", max: "90", default: 30 },
+                { key: "grass_label", label: "地面标签名", hint: "表示地面的标签名", placeholder: "grass", type: "text", default: "grass" }
+            ]
         }
     };
 
@@ -1005,6 +1037,7 @@
         if (st === 'running') { badge.classList.add('running'); txt.textContent = msg || "处理中..."; }
         else if (st === 'success') { badge.classList.add('success'); txt.textContent = msg || "完成"; }
         else if (st === 'fail') { badge.classList.add('error'); txt.textContent = msg || "错误"; }
+        else if (st === 'cancelled') { badge.classList.add('error'); txt.textContent = "已取消"; }
         else { txt.textContent = "就绪"; }
 
         const r = state.running;
@@ -1209,12 +1242,6 @@
             const taskState = state.formData[state.activeTask];
             taskState.logs = [];
             taskState.rawLogs = [];
-            taskState.timeline = {
-                prepare: { status: "pending", lines: [] },
-                scan: { status: "pending", lines: [] },
-                process: { status: "pending", lines: [] },
-                finish: { status: "pending", lines: [] }
-            };
             taskState.result = null;
             taskState.latestOutputPath = "";
             taskState.latestBackupPath = "";
@@ -1280,14 +1307,6 @@
             const taskState = state.formData[state.activeTask];
             taskState.logs = [];
             if (Array.isArray(taskState.rawLogs)) taskState.rawLogs = [];
-            if (taskState.timeline) {
-                taskState.timeline = {
-                    prepare: { status: "pending", lines: [] },
-                    scan: { status: "pending", lines: [] },
-                    process: { status: "pending", lines: [] },
-                    finish: { status: "pending", lines: [] }
-                };
-            }
             if (typeof restoreTaskLogs === "function") restoreTaskLogs(state.activeTask);
         });
         $("btnOpenOut").addEventListener("click", () => {
@@ -1321,36 +1340,11 @@
     if (window.__phase3PatchApplied) return;
     window.__phase3PatchApplied = true;
 
-    const STAGES = ["prepare", "scan", "process", "finish"];
-    const STAGE_TEXT = { prepare: "准备", scan: "扫描", process: "处理", finish: "完成" };
-    const STAGE_ICON = { prepare: "●", scan: "◍", process: "◆", finish: "✓" };
-
     function ensureEnhanceState(taskKey) {
         if (typeof state === "undefined" || !state.formData || !state.formData[taskKey]) return null;
         const task = state.formData[taskKey];
         task.rawLogs = task.rawLogs || [];
-        task.timeline = task.timeline || {
-            prepare: { status: "pending", lines: [] },
-            scan: { status: "pending", lines: [] },
-            process: { status: "pending", lines: [] },
-            finish: { status: "pending", lines: [] },
-        };
         return task;
-    }
-
-    function inferStage(line) {
-        const text = String(line || "").toLowerCase();
-        if (/准备|启动|提交|受理|queued|running/.test(text)) return "prepare";
-        if (/扫描|读取|预览|分析|发现|文件/.test(text)) return "scan";
-        if (/完成|结束|收尾|success|fail|error|失败|成功/.test(text)) return "finish";
-        return "process";
-    }
-
-    function statusText(status) {
-        if (status === "running") return "进行中";
-        if (status === "success") return "已完成";
-        if (status === "error") return "失败";
-        return "待开始";
     }
 
     function activeSettings() {
@@ -1371,50 +1365,6 @@
         const style = document.createElement("style");
         style.id = "phase3PatchStyle";
         style.textContent = `
-        .timeline-grid-p3 { display:grid; gap:10px; padding:2px; }
-        .timeline-card-p3 {
-            border:1px solid var(--border-color);
-            border-radius:12px;
-            background: linear-gradient(180deg, rgba(255,255,255,.98), rgba(248,251,255,.96));
-            box-shadow: var(--shadow-card);
-            padding: 12px 14px;
-            display:grid;
-            grid-template-columns: 140px 1fr;
-            align-items: flex-start;
-            gap: 12px;
-        }
-        .timeline-stage-p3 { display:flex; align-items:center; gap:8px; padding-top:2px; }
-        .timeline-dot-p3 {
-            width:22px; height:22px; border-radius:999px;
-            display:inline-flex; align-items:center; justify-content:center;
-            font-size:12px; font-weight:700;
-            border:1px solid var(--border-color); color:var(--text-muted); background:#fff;
-        }
-        .timeline-stage-name-p3 { font-size:14px; font-weight:600; color: var(--text-main); }
-        .timeline-stage-sub-p3 { font-size:11px; color: var(--text-muted); }
-        .timeline-right-p3 { display:grid; gap:8px; min-width:0; }
-        .timeline-top-p3 { display:flex; justify-content:space-between; align-items:center; gap:8px; }
-        .timeline-name-p3 { font-size:12px; font-weight:600; color: var(--text-main); }
-        .timeline-sub-p3 { font-size:10px; color:var(--text-muted); margin-left:6px; }
-        .timeline-badge-p3 { font-size:11px; padding:3px 9px; border:1px solid var(--border-color); border-radius:999px; color:var(--text-muted); background:#fff; font-weight: 600; }
-        .timeline-badge-p3.running { color: var(--warning); border-color:#fde68a; background:#fffbeb; }
-        .timeline-badge-p3.success { color: var(--success); border-color:#86efac; background:#ecfdf3; }
-        .timeline-badge-p3.error { color: var(--danger); border-color:#fca5a5; background:#fef2f2; }
-        .timeline-lines-p3 { margin-top:2px; display:grid; gap:6px; max-height:110px; overflow:auto; padding-right:4px; }
-        .timeline-line-p3 { font-size:12px; line-height:1.45; word-break:break-word; padding:6px 8px; border-radius:8px; background:#f8fafc; border:1px solid #edf2f7; }
-        .timeline-line-p3.muted { color: var(--text-muted); }
-        .timeline-lines-p3::-webkit-scrollbar,
-        .p3-pre::-webkit-scrollbar,
-        .p3-body::-webkit-scrollbar { width: 6px; height: 6px; }
-        .timeline-lines-p3::-webkit-scrollbar-track,
-        .p3-pre::-webkit-scrollbar-track,
-        .p3-body::-webkit-scrollbar-track { background: transparent; }
-        .timeline-lines-p3::-webkit-scrollbar-thumb,
-        .p3-pre::-webkit-scrollbar-thumb,
-        .p3-body::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
-        .timeline-lines-p3::-webkit-scrollbar-thumb:hover,
-        .p3-pre::-webkit-scrollbar-thumb:hover,
-        .p3-body::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
         .p3-btn { margin-left:8px; }
         .p3-overlay { position:fixed; inset:0; background:rgba(17,30,53,.4); backdrop-filter:blur(8px); z-index:71; display:grid; place-items:center; padding:12px; }
         .p3-overlay.hidden { display:none; }
@@ -1441,7 +1391,6 @@
         .p3-debug-grid { display:grid; gap:10px; grid-template-columns:1fr 1fr; }
         .p3-pre { margin:0; white-space:pre-wrap; word-break:break-word; max-height:50vh; overflow:auto; border:1px solid var(--border-color); border-radius:10px; padding:10px; font-size:12px; line-height:1.5; background:#f8fafc; color:var(--text-main); font-family: var(--font-mono); }
         @media (max-width: 960px) {
-            .timeline-card-p3 { grid-template-columns: 1fr; }
             .p3-debug-grid { grid-template-columns: 1fr; }
         }
         `;
@@ -1468,7 +1417,7 @@
         }
 
         const logTitle = document.querySelector(".log-card .card-title");
-        if (logTitle) logTitle.textContent = "任务时间线";
+        if (logTitle) logTitle.textContent = "终端日志";
 
         if (!document.getElementById("p3DebugOverlay")) {
             const debugOverlay = document.createElement("div");
@@ -1491,11 +1440,7 @@
                             <span class="status-badge" id="p3RawCount">0 lines</span>
                         </div>
                         <div class="p3-debug-grid">
-                            <div class="p3-section">
-                                <h4>时间线数据快照</h4>
-                                <pre class="p3-pre" id="p3TimelineSnapshot">暂无快照</pre>
-                            </div>
-                            <div class="p3-section">
+                            <div class="p3-section" style="grid-column: 1 / -1;">
                                 <h4>原始日志</h4>
                                 <pre class="p3-pre" id="p3RawPanel">暂无日志</pre>
                             </div>
@@ -1538,7 +1483,7 @@
                                 <div class="p3-fields">
                                     <div class="p3-field"><label>默认执行模式</label><select id="p3DefaultMode"><option value="safe_copy">安全复制</option><option value="in_place">原地修改</option></select></div>
                                     <div class="p3-field"><label>默认输入模式</label><select id="p3DefaultInputMode"><option value="folder">文件夹</option><option value="file">单文件</option></select></div>
-                                    <div class="p3-field"><label>启动任务</label><select id="p3StartupTask"><option value="bgr2rgb">颜色通道转换</option><option value="rename2">批量重命名</option><option value="select_diverse">多样性筛图</option><option value="json_path">JSON 路径修复</option></select></div>
+                                    <div class="p3-field"><label>启动任务</label><select id="p3StartupTask"><option value="bgr2rgb">颜色通道转换</option><option value="rename2">批量重命名</option><option value="select_diverse">多样性筛图</option><option value="json_path">JSON 路径修复</option><option value="reorder_labels">标签排序</option></select></div>
                                     <div class="p3-field p3-check-row"><input id="p3RequireConfirm" type="checkbox"><label for="p3RequireConfirm">原地修改强制确认</label></div>
                                     <div class="p3-field p3-check-row"><input id="p3AutoOpenOutput" type="checkbox"><label for="p3AutoOpenOutput">任务成功后自动打开输出目录</label></div>
                                 </div>
@@ -1592,46 +1537,13 @@
         }
     }
 
-    function renderTimeline(taskKey = state.activeTask) {
-        const task = ensureEnhanceState(taskKey);
-        const wrap = document.getElementById("terminalLog");
-        if (!task || !wrap) return;
-        wrap.innerHTML = `<div class="timeline-grid-p3">` + STAGES.map((stage) => {
-            const item = task.timeline[stage];
-            const lines = (item.lines || []).slice(-5);
-            const cls = item.status === "running" ? "running" : item.status === "success" ? "success" : item.status === "error" ? "error" : "";
-            return `
-                <article class="timeline-card-p3">
-                    <div class="timeline-stage-p3">
-                        <div class="timeline-dot-p3">${STAGE_ICON[stage]}</div>
-                        <div>
-                            <div class="timeline-stage-name-p3">${STAGE_TEXT[stage]}</div>
-                            <div class="timeline-stage-sub-p3">${stage}</div>
-                        </div>
-                    </div>
-                    <div class="timeline-right-p3">
-                        <div class="timeline-top-p3">
-                            <div class="timeline-name-p3">阶段状态</div>
-                            <div class="timeline-badge-p3 ${cls}">${statusText(item.status)}</div>
-                        </div>
-                        <div class="timeline-lines-p3">
-                            ${(lines.length ? lines : ["等待任务进入该阶段"]).map((line) => `<div class="timeline-line-p3${item.status === "pending" ? " muted" : ""}">${escapeHtml(line)}</div>`).join("")}
-                        </div>
-                    </div>
-                </article>
-            `;
-        }).join("") + `</div>`;
-    }
-
     function renderRaw(taskKey = state.activeTask) {
         const task = ensureEnhanceState(taskKey);
         const panel = document.getElementById("p3RawPanel");
         const count = document.getElementById("p3RawCount");
-        const timelinePanel = document.getElementById("p3TimelineSnapshot");
         if (!task || !panel || !count) return;
         count.textContent = `${task.rawLogs.length} lines`;
         panel.textContent = task.rawLogs.length ? task.rawLogs.join("\n") : "暂无日志";
-        if (timelinePanel) timelinePanel.textContent = JSON.stringify(task.timeline || {}, null, 2);
     }
 
     function renderSettingsVisual(settings) {
@@ -1716,32 +1628,18 @@
                 const line = String(text || "");
                 task.rawLogs.push(`[${new Date().toLocaleTimeString("zh-CN", { hour12: false })}] [${lv.toUpperCase()}] ${line}`);
                 if (task.rawLogs.length > 5000) task.rawLogs.splice(0, task.rawLogs.length - 5000);
-
-                const stage = inferStage(line);
-                const bucket = task.timeline[stage];
-                if (bucket.status === "pending") bucket.status = "running";
-                if (lv === "error") bucket.status = "error";
-                if (/完成|成功|done|finished|success/.test(line.toLowerCase())) task.timeline.finish.status = "success";
-                if (/失败|error|fail/.test(line.toLowerCase())) task.timeline.finish.status = "error";
-                bucket.lines = [...bucket.lines, line].slice(-8);
             }
             if (typeof oldLog === "function") oldLog(level, text);
-            renderTimeline(taskKey);
-            renderRaw(taskKey);
         };
 
         const oldRestore = window.restoreTaskLogs;
         window.restoreTaskLogs = function patchedRestore(taskKey) {
             if (typeof oldRestore === "function") oldRestore(taskKey);
-            renderTimeline(taskKey);
-            renderRaw(taskKey);
         };
 
         const oldRenderAll = window.renderAll;
         window.renderAll = function patchedRenderAll() {
             if (typeof oldRenderAll === "function") oldRenderAll();
-            renderTimeline(state.activeTask);
-            renderRaw(state.activeTask);
         };
     }
 
