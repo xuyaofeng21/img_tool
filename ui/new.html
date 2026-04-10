@@ -1118,17 +1118,26 @@
     let modelDownloading = false;
 
     async function checkModelStatus() {
-        if (!hasApi()) return;
+        console.log("checkModelStatus called, hasApi:", hasApi());
+        if (!hasApi()) {
+            console.log("hasApi returned false, returning");
+            return;
+        }
         try {
+            console.log("Calling API...");
             const res = await window.pywebview.api.check_model_status();
-            console.log("模型检测结果:", res);
+            console.log("API返回:", res);
             if (!res.ok) {
                 console.error("API返回错误:", res.error);
                 return;
             }
 
             const container = $("modelStatusContainer");
-            if (!container) return;
+            console.log("container:", container);
+            if (!container) {
+                console.log("container不存在，返回");
+                return;
+            }
 
             if (res.both) {
                 container.innerHTML = `<span style="color:#22c55e;font-size:13px;">✓ 模型已就绪</span>`;
