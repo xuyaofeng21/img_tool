@@ -1118,30 +1118,32 @@
     let modelDownloading = false;
 
     async function checkModelStatus() {
-        // 显示调试信息在页面上
-        const debugEl = document.getElementById("modelStatusContainer");
-        if (debugEl) debugEl.innerHTML = `<span style="font-size:12px;color:#666;">检测中...</span>`;
+        const container = $("modelStatusContainer");
+        if (!container) return;
+
+        container.innerHTML = `<span style="font-size:13px;color:#666;">检测中...</span>`;
 
         if (!hasApi()) {
-            if (debugEl) debugEl.innerHTML = `<span style="color:#f59e0b;font-size:13px;">⚠ 无API连接</span>`;
+            container.innerHTML = `<span style="color:#f59e0b;font-size:13px;">⚠ 无API连接</span>`;
             return;
         }
         try {
             const res = await window.pywebview.api.check_model_status();
-            if (debugEl) debugEl.innerHTML = `<span style="font-size:12px;color:#666;">API返回: ${JSON.stringify(res)}</span>`;
-            await new Promise(r => setTimeout(r, 2000)); // 等2秒让你看到结果
-            if (!res.ok) return;
+            if (!res.ok) {
+                container.innerHTML = `<span style="color:#f59e0b;font-size:13px;">错误: ${res.error}</span>`;
+                return;
+            }
 
             if (res.both) {
-                debugEl.innerHTML = `<span style="color:#22c55e;font-size:13px;">✓ 模型已就绪</span>`;
+                container.innerHTML = `<span style="color:#22c55e;font-size:13px;">✓ 模型已就绪</span>`;
             } else {
-                debugEl.innerHTML = `
-                    <span style="color:#f59e0b;font-size:13px;">⚠ 抠图模型未下载</span>
+                container.innerHTML = `
+                    <span style="color:#f59e0b;font-size:13px;">⚠ 抠图模型未下载 (u2net:${res.u2net}, u2net_small:${res.u2net_small})</span>
                     <button class="model-download-btn" onclick="downloadModel()" style="margin-left:12px;padding:4px 12px;font-size:12px;background:#3b82f6;color:#fff;border:none;border-radius:4px;cursor:pointer;">下载模型</button>
                 `;
             }
         } catch(e) {
-            if (debugEl) debugEl.innerHTML = `<span style="color:#f59e0b;font-size:13px;">错误: ${e.message}</span>`;
+            container.innerHTML = `<span style="color:#f59e0b;font-size:13px;">错误: ${e.message}</span>`;
         }
     }
 
