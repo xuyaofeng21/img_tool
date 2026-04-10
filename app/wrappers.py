@@ -1568,7 +1568,7 @@ def _run_synthesize(
             else:
                 fail_count += 1
         except Exception as exc:
-            log("error", f"处理失败 {bg_path.name}: {exc}")
+            log("error", f"处理失败 {bg_path.name}: {str(exc)}")
             fail_count += 1
 
         if idx % 10 == 0 or idx == len(bg_json_pairs):
@@ -1754,10 +1754,20 @@ def _get_or_create_object_cache(
     # 用 rembg 抠图
     if not has_label_mask:
         try:
+            # 确保是 RGBA 格式
+            if len(img.shape) == 2 or img.shape[2] != 4:
+                img = cv2.cvtColor(img, cv2.COLOR_BGR2BGRA)
             img_rgba = cv2.cvtColor(img, cv2.COLOR_BGRA2RGBA)
             img_pil = Image.fromarray(img_rgba)
             img_no_bg_pil = remove(img_pil, model=model_name, alpha_matting=False)
-            img = cv2.cvtColor(np.array(img_no_bg_pil), cv2.COLOR_RGBA2BGRA)
+            img_no_bg = np.array(img_no_bg_pil)
+            if len(img_no_bg.shape) == 2:
+                # 灰度图转 BGRA
+                img = cv2.cvtColor(img_no_bg, cv2.COLOR_GRAY2BGRA)
+            elif img_no_bg.shape[2] == 4:
+                img = cv2.cvtColor(img_no_bg, cv2.COLOR_RGBA2BGRA)
+            else:
+                img = cv2.cvtColor(img_no_bg, cv2.COLOR_RGB2BGRA)
         except Exception:
             return None
 
