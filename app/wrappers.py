@@ -3,6 +3,7 @@ from __future__ import annotations
 import contextlib
 import importlib.util
 import io
+import json
 import os
 import re
 import shutil
@@ -24,6 +25,24 @@ LogFn = Callable[[str, str], None]
 _SCRIPT_MODULES: dict[str, Any] = {}
 _IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif", ".gif", ".webp"}
 _PNG_EXTENSIONS = {".png"}
+
+
+def _check_cancelled() -> bool:
+    """检查当前任务是否已被取消"""
+    from . import tasks
+    manager = tasks.get_task_manager_ref()
+    if manager is None:
+        return False
+    task_id = tasks.get_current_task_id()
+    if task_id is None:
+        return False
+    return manager.is_task_cancelled(task_id)
+
+
+def _require_not_cancelled() -> None:
+    """如果任务已取消则抛出 KeyboardInterrupt"""
+    if _check_cancelled():
+        raise KeyboardInterrupt("任务已被取消")
 
 
 def _counts_to_items(counts: dict[str, int]) -> list[dict[str, int | str]]:
@@ -530,26 +549,36 @@ def _select_diverse_with_target(
     log("info", f"按张数优先执行，目标精选 {target_count} 张")
 
     hashes: list[tuple[Path, Any] | None] = []
-    for file_path in png_files:
+    for i, file_path in enumerate(png_files, 1):
+        _require_not_cancelled()
         try:
             hashes.append((file_path, _compute_phash(file_path)))
         except Exception as exc:
             log("warn", f"无法处理 {file_path.name}: {exc}")
             hashes.append(None)
+        if i % 50 == 0 or i == total:
+            log("info", f"已处理 {i}/{total}")
 
+    _require_not_cancelled()
     valid = [item for item in hashes if item is not None]
     if not valid:
         return 0, 0, 0
 
+    log("info", f"成功计算 {len(valid)} 个哈希，开始筛选...")
+
     selected: list[tuple[Path, Any]] = []
-    for file_path, file_hash in valid:
+    for i, (file_path, file_hash) in enumerate(valid, 1):
+        _require_not_cancelled()
         if not selected:
             selected.append((file_path, file_hash))
             continue
         min_dist = min((file_hash - chosen_hash) for _, chosen_hash in selected)
         if min_dist > hamming_thresh:
             selected.append((file_path, file_hash))
+        if i % 50 == 0 or i == len(valid):
+            log("info", f"筛选进度 {i}/{len(valid)}，已选中 {len(selected)} 张")
 
+    _require_not_cancelled()
     if len(selected) > target_count:
         step = len(selected) / target_count
         selected = [selected[int(i * step)] for i in range(target_count)]
@@ -561,6 +590,7 @@ def _select_diverse_with_target(
             reverse=True,
         )
         for item in remaining:
+            _require_not_cancelled()
             if len(selected) >= target_count:
                 break
             selected.append(item)
@@ -942,6 +972,7 @@ def _run_select_diverse(
         result_output_path = inplace_output_path
 
     try:
+        _require_not_cancelled()
         if target_count is not None:
             try:
                 lines = _run_with_captured_stdout(
@@ -958,6 +989,7 @@ def _run_select_diverse(
                 if "target_count" not in str(exc):
                     raise
                 log("warn", "当前脚本接口未暴露 target_count 参数，已切换到兼容内部筛选逻辑。")
+                _require_not_cancelled()
                 success, fail, skipped = _select_diverse_with_target(working_input, process_output_dir, target_count, hamming_thresh, log)
         else:
             try:
@@ -969,6 +1001,7 @@ def _run_select_diverse(
                 if "sf" not in str(exc):
                     raise
                 log("warn", "select_diverse 脚本触发已知异常，启用兼容回退策略。")
+                _require_not_cancelled()
                 success = _select_diverse_compat_fallback(working_input, process_output_dir, select_ratio, log)
                 fail = 0
                 skipped = 0
@@ -1027,8 +1060,10 @@ def _run_json_path(paths: dict[str, Any], mode: str, backup_dir: str, log: LogFn
         raise ValueError("image_dir 不能为空")
     image_dir = image_path if image_path.is_dir() else image_path.parent
 
-    def run_script(target_json_dir: Path) -> list[str]:
+    def run_script(target_json_dir: Path, source_json_dir: Path | None = None) -> list[str]:
         cmd = [sys.executable, str(script_path), str(target_json_dir), str(image_dir)]
+        if source_json_dir:
+            cmd.append(str(source_json_dir))
         env = dict(os.environ)
         env["PYTHONIOENCODING"] = "utf-8"
         env["PYTHONUTF8"] = "1"
@@ -1079,7 +1114,7 @@ def _run_json_path(paths: dict[str, Any], mode: str, backup_dir: str, log: LogFn
             output_path = result_output_path
 
         try:
-            lines = run_script(working_input)
+            lines = run_script(working_input, source_json.parent)
             if mode == "safe_copy":
                 _restore_outputs_to_dir(working_input, staged_to_original, output_path)
             else:
@@ -1231,8 +1266,10 @@ def _run_json_path_v2(paths: dict[str, Any], mode: str, backup_dir: str, log: Lo
         raise ValueError("image_dir 不能为空")
     image_dir = image_path if image_path.is_dir() else image_path.parent
 
-    def run_script(target_json_dir: Path) -> list[str]:
+    def run_script(target_json_dir: Path, source_json_dir: Path | None = None) -> list[str]:
         cmd = [sys.executable, str(script_path), str(target_json_dir), str(image_dir)]
+        if source_json_dir:
+            cmd.append(str(source_json_dir))
         env = dict(os.environ)
         env["PYTHONIOENCODING"] = "utf-8"
         env["PYTHONUTF8"] = "1"
@@ -1287,7 +1324,7 @@ def _run_json_path_v2(paths: dict[str, Any], mode: str, backup_dir: str, log: Lo
             output_path = result_output_path
 
         try:
-            lines = run_script(working_input)
+            lines = run_script(working_input, source_roots[0])
             if mode == "safe_copy":
                 _restore_outputs_to_dir(working_input, staged_to_original, output_path)
             else:
@@ -1324,6 +1361,106 @@ def _run_json_path_v2(paths: dict[str, Any], mode: str, backup_dir: str, log: Lo
     }
 
 
+def _run_reorder_labels(paths: dict[str, Any], mode: str, backup_dir: str, log: LogFn) -> dict[str, Any]:
+    """重新排序JSON中的shapes，把station标签移到最前面（底层），方便数字标签移动"""
+    input_mode, mode_warnings = _normalize_input_mode(paths.get("input_mode", "folder"))
+    for warning in mode_warnings:
+        log("warn", warning)
+
+    def process_single_json(json_path: Path) -> tuple[bool, str]:
+        """处理单个JSON文件，返回(是否成功, 消息)"""
+        try:
+            with open(json_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+
+            shapes = data.get('shapes', [])
+            if not shapes:
+                return True, f"⚠️ {json_path.name} 无shapes"
+
+            # 分离station和其他标签
+            station_shapes = [s for s in shapes if s.get('label') == 'station']
+            other_shapes = [s for s in shapes if s.get('label') != 'station']
+
+            # 检查是否有station标签
+            if not station_shapes:
+                return True, f"ℹ️ {json_path.name} 无station标签（跳过）"
+
+            # 重新排序：station在最前面（底层），其他标签在station上面
+            data['shapes'] = station_shapes + other_shapes
+
+            with open(json_path, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+
+            return True, f"✅ {json_path.name}"
+        except json.JSONDecodeError as e:
+            return False, f"❌ {json_path.name} JSON格式错误: {e}"
+        except Exception as e:
+            return False, f"❌ {json_path.name} 处理失败: {e}"
+
+    def process_directory(json_dir: Path) -> list[str]:
+        """处理目录下的所有JSON文件"""
+        results = []
+        json_files = [p for p in json_dir.glob("*.json") if p.is_file()]
+        for json_path in sorted(json_files):
+            success, msg = process_single_json(json_path)
+            if success or "⚠️" in msg or "ℹ️" in msg:
+                log("info", msg)
+            else:
+                log("error", msg)
+            results.append(msg)
+        return results
+
+    if input_mode == "file":
+        source_jsons = [
+            p
+            for p in _collect_existing_paths(paths, ["json_file", "input_file", "source_file", "input_path", "file_path", "json_dir"])
+            if p.is_file() and p.suffix.lower() == ".json"
+        ]
+        if not source_jsons:
+            json_dir_candidate = _collect_first_existing_dir(paths, ["json_dir", "source_dir", "input_dir"])
+            if json_dir_candidate is not None:
+                source_jsons = [
+                    p for p in sorted(json_dir_candidate.iterdir(), key=lambda p: str(p)) if p.is_file() and p.suffix.lower() == ".json"
+                ]
+        if not source_jsons:
+            raise ValueError("文件模式下必须提供有效的 JSON 文件")
+
+        # 直接处理每个JSON文件（原地修改）
+        results = []
+        for json_path in source_jsons:
+            success, msg = process_single_json(json_path)
+            results.append((success, msg))
+            if success or "⚠️" in msg or "ℹ️" in msg:
+                log("info", msg)
+            else:
+                log("error", msg)
+
+        result_output_path = source_jsons[0].parent
+        success = sum(1 for s, m in results if s)
+        fail = sum(1 for s, m in results if not s and "⚠️" not in m and "ℹ️" not in m)
+        skipped = sum(1 for s, m in results if "⚠️" in m or "ℹ️" in m)
+    else:
+        json_dir = _collect_first_existing_dir(paths, ["json_dir", "source_dir", "input_dir", "input_path"])
+        if json_dir is None:
+            raise ValueError("json_dir 不能为空")
+
+        lines = process_directory(json_dir)
+        result_output_path = json_dir
+        success = sum(1 for x in lines if x.strip().startswith("✅"))
+        fail = sum(1 for x in lines if x.strip().startswith("❌"))
+        skipped = sum(1 for x in lines if x.strip().startswith("ℹ️") or x.strip().startswith("⚠️"))
+
+    return {
+        "status": "success",
+        "success_count": success,
+        "fail_count": fail,
+        "skipped_count": skipped,
+        "output_path": str(result_output_path),
+        "backup_path": "",
+        "error": "",
+    }
+
+
 def execute_task(payload: dict[str, Any], log: LogFn) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise ValueError("payload 必须是对象")
@@ -1348,4 +1485,8 @@ def execute_task(payload: dict[str, Any], log: LogFn) -> dict[str, Any]:
         return _run_select_diverse(paths, params, mode, backup_dir, log)
     if task == "json_path":
         return _run_json_path_v2(paths, mode, backup_dir, log)
+    if task == "reorder_labels":
+        return _run_reorder_labels(paths, mode, backup_dir, log)
+    if task == "synthesize":
+        return _run_synthesize(paths, params, mode, backup_dir, log)
     raise ValueError(f"不支持的 task: {task}")
