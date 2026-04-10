@@ -5,6 +5,7 @@ import importlib.util
 import io
 import json
 import os
+import random
 import re
 import shutil
 import sys
@@ -18,6 +19,8 @@ import cv2
 import imagehash
 import numpy as np
 from PIL import Image
+from shapely.geometry import Polygon, MultiPolygon
+from shapely.ops import unary_union
 
 
 LogFn = Callable[[str, str], None]
@@ -1495,10 +1498,6 @@ def _run_synthesize(
     log: LogFn,
 ) -> dict[str, Any]:
     """合成任务主函数"""
-    import tempfile
-    from pathlib import Path
-    from shapely.ops import unary_union
-
     # 解析参数
     label = str(params.get("label", "")).strip()
     target_label = str(params.get("target_label", "")).strip() or None
@@ -1604,8 +1603,6 @@ def _process_single_synthesize(
     log: LogFn,
 ) -> bool:
     """处理单张背景图的合成"""
-    import random
-    import numpy as np
     from shapely.geometry import Polygon
 
     # 加载背景图
@@ -1712,7 +1709,7 @@ def _get_or_create_object_cache(
     model_name: str,
     cache_dir: Path,
     log: LogFn,
-):
+) -> "np.ndarray | None":
     """获取或创建物体缓存"""
     from PIL import Image
     from rembg import remove
@@ -1779,8 +1776,6 @@ def _get_or_create_object_cache(
 
 def _apply_rotation_and_flip(object_img: "np.ndarray", max_angle: float, log: LogFn) -> "np.ndarray":
     """应用随机旋转和镜像"""
-    import random
-
     # 水平镜像
     if random.choice([True, False]):
         object_img = cv2.flip(object_img, 1)
@@ -1822,9 +1817,7 @@ def _place_object_on_grass(
     log: LogFn,
 ) -> tuple[bool, tuple | None]:
     """将物体放置在草地上"""
-    import random
     from shapely.geometry import box
-    from shapely.ops import unary_union
 
     obj_h, obj_w = object_img.shape[:2]
     bg_h, bg_w = bg_img.shape[:2]
@@ -1910,8 +1903,6 @@ def _create_polygon_from_object(object_img: "np.ndarray", bbox: tuple, label: st
 
 def _adjust_polygons_with_object(original_shapes: list, object_shape: dict, log: LogFn) -> list:
     """当物体与原有多边形重叠时，裁剪多边形边界"""
-    from shapely.geometry import Polygon, MultiPolygon
-
     adjusted = []
     try:
         object_poly = Polygon(object_shape["points"])
