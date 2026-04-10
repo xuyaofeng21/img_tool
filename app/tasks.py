@@ -14,6 +14,20 @@ def _now() -> str:
     return datetime.now().isoformat(timespec="seconds")
 
 
+# Thread-local storage for current task context
+_task_context = threading.local()
+
+
+def get_current_task_id() -> str | None:
+    """Get the current task_id from thread-local storage, if any."""
+    return getattr(_task_context, "task_id", None)
+
+
+def get_task_manager_ref() -> "TaskManager | None":
+    """Get the TaskManager instance from thread-local storage, if any."""
+    return getattr(_task_context, "task_manager", None)
+
+
 class TaskManager:
     def __init__(self) -> None:
         self._tasks: dict[str, dict[str, Any]] = {}
@@ -60,6 +74,10 @@ class TaskManager:
             record["logs"].append(line)
 
     def _run_task(self, task_id: str, payload: dict[str, Any]) -> None:
+        # Set up thread-local context for cancellation checking
+        _task_context.task_id = task_id
+        _task_context.task_manager = self
+
         with self._lock:
             record = self._tasks.get(task_id)
             if record:
@@ -79,6 +97,15 @@ class TaskManager:
                     record["result"]["logs"] = list(record["logs"])
                     record["ended_at"] = _now()
             self._append_log(task_id, "info", "任务执行完成")
+        except KeyboardInterrupt:
+            self._append_log(task_id, "warn", "任务已被用户取消")
+            with self._lock:
+                record = self._tasks.get(task_id)
+                if record:
+                    record["status"] = "cancelled"
+                    record["result"]["status"] = "cancelled"
+                    record["result"]["logs"] = list(record["logs"])
+                    record["ended_at"] = _now()
         except Exception as exc:
             err_msg = str(exc)
             self._append_log(task_id, "error", err_msg)
@@ -91,6 +118,25 @@ class TaskManager:
                     record["result"]["error"] = err_msg
                     record["result"]["logs"] = list(record["logs"])
                     record["ended_at"] = _now()
+        finally:
+            # Clean up thread-local context
+            _task_context.task_id = None
+            _task_context.task_manager = None
+
+    def is_task_cancelled(self, task_id: str) -> bool:
+        with self._lock:
+            record = self._tasks.get(task_id)
+            if record is None:
+                return False
+            return record.get("cancelled", False)
+
+    def cancel_task(self, task_id: str) -> dict[str, Any]:
+        with self._lock:
+            record = self._tasks.get(task_id)
+            if record is None:
+                return {"ok": False, "error": "任务不存在"}
+            record["cancelled"] = True
+            return {"ok": True}
 
     def get_logs(self, task_id: str, from_index: int = 0) -> dict[str, Any]:
         try:

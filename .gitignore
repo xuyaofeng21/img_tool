@@ -1,10 +1,40 @@
-# Python-generated files
+# Python generated files
 __pycache__/
 *.py[oc]
 build/
 dist/
 wheels/
 *.egg-info
+.eggs/
+*.whl
+.pytest_cache/
+.tox/
 
 # Virtual environments
-.venv
+.venv/
+venv/
+.env/
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project-specific cache (do NOT upload)
+.cache/
+.claude/
+img_tool_synthesize_cache/
+
+# Logs
+*.log
+
+# Test / temp data (do NOT upload)
+test_data/
+*.tmp
+temp/

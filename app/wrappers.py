@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import contextlib
 import importlib.util
 import io
@@ -315,6 +316,8 @@ def _resolve_preview_targets(payload: dict[str, Any]) -> tuple[list[Path], list[
         "input_dir",
         "source_path",
         "source_dir",
+        "source_folder",
+        "bg_json_folder",
         "json_dir",
         "image_dir",
         "target_dir",
@@ -1548,6 +1551,7 @@ def _run_synthesize(
     # 缓存目录
     cache_dir = Path(tempfile.gettempdir()) / "img_tool_synthesize_cache"
     cache_dir.mkdir(parents=True, exist_ok=True)
+    log("info", f"缓存目录: {cache_dir}")
 
     model_name = "u2net" if model_choice == "precise" else "u2net_small"
 
@@ -1680,15 +1684,20 @@ def _process_single_synthesize(
 
     # 更新 JSON
     new_shapes = list(original_json.get("shapes", []))
-    for obj_shape in placed_objects:
+    for bbox, object_img, obj_shape in placed_objects:
         new_shapes = _adjust_polygons_with_object(new_shapes, obj_shape, log)
         new_shapes.append(obj_shape)
+
+    # 读取合成图并转为 base64
+    with open(output_img_path, "rb") as f:
+        img_data = base64.b64encode(f.read()).decode("utf-8")
 
     new_json = {
         "version": original_json.get("version", "4.5.6"),
         "flags": original_json.get("flags", {}),
         "shapes": new_shapes,
         "imagePath": bg_path.name,
+        "imageData": img_data,
         "imageWidth": original_json.get("imageWidth", bg_w),
         "imageHeight": original_json.get("imageHeight", bg_h),
     }
@@ -1721,27 +1730,32 @@ def _get_or_create_object_cache(
         try:
             img = cv2.imread(cache_path, cv2.IMREAD_UNCHANGED)
             if img is not None:
-                # 确保缓存图片是 4 通道
+                # 确保缓存图片是 4 通道 BGRA
+                # 注意：cv2.imwrite 保存 BGRA 时，读取回来仍是 BGRA
+                # 所以 4 通道时不需要转换
                 if len(img.shape) == 2:
-                    img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGRA)
+                    img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+                    img = cv2.cvtColor(img, cv2.COLOR_BGR2BGRA)
                 elif img.shape[2] == 3:
                     img = cv2.cvtColor(img, cv2.COLOR_BGR2BGRA)
-                # 如果是 4 通道，直接使用
+                # 4通道时假设是 BGRA，直接使用
                 return img
         except Exception:
             pass
 
-    # 加载图片 - 强制转换为 BGR
-    img = cv2.imread(str(source_path), cv2.IMREAD_COLOR)
+    # 加载图片 - 保持原始通道
+    img = cv2.imread(str(source_path), cv2.IMREAD_UNCHANGED)
     if img is None:
         return None
 
-    # 确保是 4 通道 BGRA
+    # 转换为 BGRA 4通道
+    # 注意：cv2.imread 对 PNG 等格式返回 BGRA（不是 RGBA），所以 4 通道时不需要转换
     if len(img.shape) == 2:
-        img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGRA)
+        img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2BGRA)
     elif img.shape[2] == 3:
         img = cv2.cvtColor(img, cv2.COLOR_BGR2BGRA)
-    # 如果已经是 4 通道，假设是 BGRA 格式，直接使用
+    # 4通道时假设是 BGRA，直接使用
 
     h, w = img.shape[:2]
 
@@ -1761,20 +1775,23 @@ def _get_or_create_object_cache(
     # 用 rembg 抠图
     if not has_label_mask:
         try:
-            # 确保是 RGBA 格式
-            if len(img.shape) == 2 or img.shape[2] != 4:
-                img = cv2.cvtColor(img, cv2.COLOR_BGR2BGRA)
             img_rgba = cv2.cvtColor(img, cv2.COLOR_BGRA2RGBA)
             img_pil = Image.fromarray(img_rgba)
             img_no_bg_pil = remove(img_pil, model=model_name, alpha_matting=False)
-            img_no_bg = np.array(img_no_bg_pil)
-            if len(img_no_bg.shape) == 2:
-                # 灰度图转 BGRA
-                img = cv2.cvtColor(img_no_bg, cv2.COLOR_GRAY2BGRA)
-            elif img_no_bg.shape[2] == 4:
-                img = cv2.cvtColor(img_no_bg, cv2.COLOR_RGBA2BGRA)
+            img_no_bg_np = np.array(img_no_bg_pil)
+            # rembg 可能返回 RGB(3通道) 或 RGBA(4通道)
+            if len(img_no_bg_np.shape) == 2:
+                # 灰度图，转为 BGRA
+                img_no_bg = cv2.cvtColor(img_no_bg_np, cv2.COLOR_GRAY2BGR)
+                img = cv2.cvtColor(img_no_bg, cv2.COLOR_BGR2BGRA)
+            elif img_no_bg_np.shape[2] == 3:
+                # RGB 转 BGRA
+                img = cv2.cvtColor(img_no_bg_np, cv2.COLOR_RGB2BGRA)
+            elif img_no_bg_np.shape[2] == 4:
+                # RGBA 转 BGRA
+                img = cv2.cvtColor(img_no_bg_np, cv2.COLOR_RGBA2BGRA)
             else:
-                img = cv2.cvtColor(img_no_bg, cv2.COLOR_RGB2BGRA)
+                return None
         except Exception:
             return None
 
@@ -1893,7 +1910,8 @@ def _place_object_on_grass(
 
         # 检查与已放置物体重叠
         overlap = False
-        for (ex1, ey1, ex2, ey2) in placed_objects:
+        for bbox, _, _ in placed_objects:
+            ex1, ey1, ex2, ey2 = bbox
             if not (x2 < ex1 or x1 > ex2 or y2 < ey1 or y1 > ey2):
                 overlap = True
                 break

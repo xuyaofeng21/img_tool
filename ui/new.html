@@ -1259,7 +1259,7 @@
         state.previewTimer = setTimeout(async () => {
             const p = buildPayload(true), box = $("previewContainer"), sum = $("previewSummary");
             const taskState = state.formData[state.activeTask];
-            const mainPath = p.paths.input_dir || p.paths.input_path || p.paths.source_dir || p.paths.json_dir || "";
+            const mainPath = p.paths.input_dir || p.paths.input_path || p.paths.source_dir || p.paths.json_dir || p.paths.source_folder || p.paths.bg_json_folder || "";
 
             // 如果没有路径，清空预览
             if (!Object.keys(p.paths).length || !mainPath) {
@@ -1392,9 +1392,9 @@
                     const s = await api.get_task_status(state.taskId);
                     if(s) {
                         updateMetrics(s);
-                        if(s.status === "success" || s.status === "fail") {
+                        if(s.status === "success" || s.status === "fail" || s.status === "cancelled") {
                             clearInterval(state.pollTimer); state.running = false; toggleTimer(false);
-                            syncStatus(s.status, s.status === "success" ? "执行成功" : "执行失败");
+                            syncStatus(s.status, s.status === "success" ? "执行成功" : s.status === "cancelled" ? "已取消" : "执行失败");
                             if (s.status === "success") {
                                 const settings = getAppSettings();
                                 const autoOpen = Boolean(settings.workflow?.auto_open_output_after_success);
