@@ -1,4 +1,4 @@
-# 个人图片批量处理工具箱 v1.0.0
+# 个人图片批量处理工具箱 v1.0.1
 
 离线桌面工具，基于 `pywebview + 本地 HTML/CSS/JS + Python`，封装 `script/` 下脚本能力，面向 Windows 本地批处理场景。
 
