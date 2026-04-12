@@ -234,6 +234,9 @@ def test_ui_contract_contains_stage2_controls():
     assert "preview" in html.lower() or "预览" in html
     assert "color_direction" in html or "RGB -> BGR" in html or "BGR -> RGB" in html
     assert "target_count" in html or "筛选张数" in html
+    assert "源标注标签" in html
+    assert "合成后标注标签" in html
+    assert "系统设置还在开发中" in html
     assert "workspace" in html.lower() or "layout" in html.lower() or 'class="main"' in html.lower()
     assert re.search(r"overflow[^;]{0,40}(auto|scroll)", html, flags=re.IGNORECASE | re.DOTALL)
 

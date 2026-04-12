@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import types
 from pathlib import Path
 
@@ -385,6 +386,125 @@ def test_select_diverse_file_mode_rejects_non_png(monkeypatch, tmp_path: Path):
                     "output_dir": str(out_dir),
                 },
                 "params": {"select_ratio": 0.5, "hamming_thresh": 10},
+                "backup_dir": "",
+            },
+            lambda *_: None,
+        )
+
+
+def test_inspect_synthesize_source_info_all_without_json(tmp_path: Path):
+    src = tmp_path / "src_no_json"
+    src.mkdir()
+    Image.new("RGB", (8, 8), (1, 2, 3)).save(src / "a.png")
+    Image.new("RGB", (8, 8), (4, 5, 6)).save(src / "b.jpg")
+
+    result = wrappers.inspect_synthesize_source_info({"source_folder": str(src)})
+
+    assert result["ok"] is True
+    assert result["mode"] == "all_without_json"
+    assert result["with_json_count"] == 0
+    assert result["without_json_count"] == 2
+
+
+def test_inspect_synthesize_source_info_detects_mixed(tmp_path: Path):
+    src = tmp_path / "src_mixed"
+    src.mkdir()
+    Image.new("RGB", (8, 8), (1, 2, 3)).save(src / "a.png")
+    Image.new("RGB", (8, 8), (4, 5, 6)).save(src / "b.png")
+    (src / "a.json").write_text(
+        json.dumps({"shapes": [{"label": "animal", "shape_type": "polygon", "points": [[1, 1], [6, 1], [6, 6]]}]}),
+        encoding="utf-8",
+    )
+
+    result = wrappers.inspect_synthesize_source_info({"source_folder": str(src)})
+
+    assert result["ok"] is False
+    assert result["mode"] == "mixed"
+    assert "混合" in result["error"]
+
+
+def test_inspect_synthesize_source_info_detects_unique_and_mismatch(tmp_path: Path):
+    src_ok = tmp_path / "src_ok"
+    src_ok.mkdir()
+    for name in ("a", "b"):
+        Image.new("RGB", (8, 8), (1, 2, 3)).save(src_ok / f"{name}.png")
+        (src_ok / f"{name}.json").write_text(
+            json.dumps({"shapes": [{"label": "hedgehog", "shape_type": "polygon", "points": [[1, 1], [6, 1], [6, 6]]}]}),
+            encoding="utf-8",
+        )
+
+    ok_result = wrappers.inspect_synthesize_source_info({"source_folder": str(src_ok)})
+    assert ok_result["ok"] is True
+    assert ok_result["mode"] == "all_with_json"
+    assert ok_result["detected_label"] == "hedgehog"
+
+    src_bad = tmp_path / "src_bad"
+    src_bad.mkdir()
+    Image.new("RGB", (8, 8), (1, 2, 3)).save(src_bad / "a.png")
+    Image.new("RGB", (8, 8), (1, 2, 3)).save(src_bad / "b.png")
+    (src_bad / "a.json").write_text(
+        json.dumps({"shapes": [{"label": "animal_a", "shape_type": "polygon", "points": [[1, 1], [6, 1], [6, 6]]}]}),
+        encoding="utf-8",
+    )
+    (src_bad / "b.json").write_text(
+        json.dumps({"shapes": [{"label": "animal_b", "shape_type": "polygon", "points": [[1, 1], [6, 1], [6, 6]]}]}),
+        encoding="utf-8",
+    )
+
+    bad_result = wrappers.inspect_synthesize_source_info({"source_folder": str(src_bad)})
+    assert bad_result["ok"] is False
+    assert bad_result["mode"] == "label_mismatch"
+    assert "label 不一致" in bad_result["error"]
+
+
+def test_run_synthesize_blocks_mixed_or_mismatch_source(tmp_path: Path):
+    bg = tmp_path / "bg"
+    out = tmp_path / "out"
+    bg.mkdir()
+    out.mkdir()
+    Image.new("RGB", (12, 12), (10, 20, 30)).save(bg / "bg1.png")
+    (bg / "bg1.json").write_text(
+        json.dumps({"shapes": [], "imageWidth": 12, "imageHeight": 12}),
+        encoding="utf-8",
+    )
+
+    src_mixed = tmp_path / "src_mixed"
+    src_mixed.mkdir()
+    Image.new("RGB", (8, 8), (1, 2, 3)).save(src_mixed / "a.png")
+    Image.new("RGB", (8, 8), (4, 5, 6)).save(src_mixed / "b.png")
+    (src_mixed / "a.json").write_text(
+        json.dumps({"shapes": [{"label": "animal", "shape_type": "polygon", "points": [[1, 1], [6, 1], [6, 6]]}]}),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="混合"):
+        wrappers.execute_task(
+            {
+                "task": "synthesize",
+                "mode": "safe_copy",
+                "paths": {"source_folder": str(src_mixed), "bg_json_folder": str(bg), "output_folder": str(out)},
+                "params": {"label": "x", "max_objects": 1},
+                "backup_dir": "",
+            },
+            lambda *_: None,
+        )
+
+    src_mismatch = tmp_path / "src_mismatch"
+    src_mismatch.mkdir()
+    for idx, lbl in enumerate(("a", "b"), start=1):
+        Image.new("RGB", (8, 8), (idx, idx, idx)).save(src_mismatch / f"{idx}.png")
+        (src_mismatch / f"{idx}.json").write_text(
+            json.dumps({"shapes": [{"label": lbl, "shape_type": "polygon", "points": [[1, 1], [6, 1], [6, 6]]}]}),
+            encoding="utf-8",
+        )
+
+    with pytest.raises(ValueError, match="label 不一致"):
+        wrappers.execute_task(
+            {
+                "task": "synthesize",
+                "mode": "safe_copy",
+                "paths": {"source_folder": str(src_mismatch), "bg_json_folder": str(bg), "output_folder": str(out)},
+                "params": {"label": "x", "max_objects": 1},
                 "backup_dir": "",
             },
             lambda *_: None,

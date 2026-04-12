@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "img-tool"
 version = "0.1.0"
-description = "Add your description here"
+description = "离线桌面图片批量处理工具箱（pywebview + Python）"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -18,6 +18,11 @@ dependencies = [
     "rembg>=2.0.75",
     "shapely>=2.1.2",
     "tqdm>=4.67.1",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.0",
 ]
 
 [tool.setuptools]

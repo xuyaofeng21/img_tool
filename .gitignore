@@ -29,6 +29,8 @@ Thumbs.db
 # Project-specific cache (do NOT upload)
 .cache/
 .claude/
+.omx/
+.codex/
 img_tool_synthesize_cache/
 
 # Logs
@@ -38,3 +40,6 @@ img_tool_synthesize_cache/
 test_data/
 *.tmp
 temp/
+reports/iteration_report.md
+
+

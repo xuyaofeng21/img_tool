@@ -619,8 +619,8 @@
                 { key: "output_folder", label: "输出目录", hint: "合成结果保存位置", placeholder: "选择文件夹...", required: true, safeOnly: true }
             ],
             params: [
-                { key: "label", label: "标注名称", hint: "合成后物体的标注名称", placeholder: "如: 刺猬", required: true, type: "text" },
-                { key: "target_label", label: "源标注标签", hint: "从哪个标签抠图(可选)", placeholder: "如: animal", type: "text" },
+                { key: "target_label", label: "源标注标签", hint: "源目录带 JSON 时自动检测并填充", placeholder: "自动检测", type: "text" },
+                { key: "label", label: "合成后标注标签", hint: "输出标注名称（源图无 JSON 时必填）", placeholder: "如: 刺猬", required: true, type: "text" },
                 { key: "max_objects", label: "放置数量", hint: "每张背景图放置物体数量", placeholder: "3", type: "number", step: "1", min: "1", max: "10", default: 3 },
                 { key: "max_object_size", label: "物体最大尺寸", hint: "物体最大边长(像素)", placeholder: "350", type: "number", step: "10", min: "50", max: "800", default: 350 },
                 { key: "model", label: "抠图模型", hint: "small=快, precise=准", type: "radio", default: "small", options: [ { label: "轻量(快)", value: "small" }, { label: "精准(慢)", value: "precise" } ] },
@@ -655,7 +655,8 @@
         activeTask: "bgr2rgb", mode: "safe_copy", running: false, runStartedAt: 0, elapsedTimer: null,
         taskId: "", pollTimer: null, pollToken: 0, logIndex: 0, latestOutputPath: "", latestBackupPath: "", latestError: "",
         previewTimer: null, previewToken: 0, previewLoading: false, previewData: null, previewError: "",
-        formData: {}, appSettings: null, autoOpenedTaskId: "", settingsJsonDirty: false
+        formData: {}, appSettings: null, autoOpenedTaskId: "", settingsJsonDirty: false,
+        synthesizeInspectToken: 0
     };
 
     const $ = id => document.getElementById(id);
@@ -762,7 +763,22 @@
 
     function initData() {
         Object.keys(TASKS).forEach(k => {
-            state.formData[k] = { paths: {}, params: {}, backup_dir: "", input_mode: "folder", logs: [], result: null, previewData: null };
+            state.formData[k] = {
+                paths: {},
+                params: {},
+                backup_dir: "",
+                input_mode: "folder",
+                logs: [],
+                result: null,
+                previewData: null,
+                sourceAnalysis: {
+                    mode: "unknown",
+                    ok: true,
+                    message: "请选择源物体目录后自动检测",
+                    detected_label: "",
+                    source_folder: ""
+                }
+            };
             TASKS[k].params.forEach(p => { if (p.default !== undefined) state.formData[k].params[p.key] = p.default; });
         });
     }
@@ -959,10 +975,15 @@
 
         // 合成任务显示模型状态
         if (state.activeTask === "synthesize") {
+            const sourceHint = ts.sourceAnalysis?.message || "请选择源物体目录后自动检测";
+            const hintColor = ts.sourceAnalysis?.ok === false ? "#dc2626" : "#16a34a";
             html.push(`
                 <div id="modelStatusContainer" style="padding: 12px 16px; background: var(--bg-surface); border: 1px solid var(--border-color); border-radius: var(--radius-md); margin-bottom: 20px; display: flex; align-items: center; justify-content: space-between;">
                     <span style="font-size:13px;color:var(--text-muted);">抠图模型:</span>
                     <span style="font-size:13px;color:var(--text-muted);">检测中...</span>
+                </div>
+                <div id="synthesizeSourceStatus" style="padding: 12px 16px; background: var(--bg-surface); border: 1px solid var(--border-color); border-radius: var(--radius-md); margin-bottom: 20px;">
+                    <span style="font-size:13px;color:${hintColor};">${escapeHtml(sourceHint)}</span>
                 </div>
             `);
         }
@@ -1007,10 +1028,18 @@
                     html.push(`<div class="form-row">`);
                     row.forEach(p => {
                         const val = ts.params[p.key] ?? p.default ?? "";
+                        const disableParam = state.running || (
+                            state.activeTask === "synthesize" &&
+                            p.key === "target_label" &&
+                            (
+                                ts.sourceAnalysis?.mode === "all_without_json" ||
+                                ts.sourceAnalysis?.mode === "all_with_json"
+                            )
+                        );
                         html.push(`
                             <div class="form-group" style="flex:1; min-width:0;">
                                 <div class="label-row"><label>${escapeHtml(p.label)}</label><span class="hint">${escapeHtml(p.hint)}</span></div>
-                                <input type="${p.type}" data-kind="param" data-key="${escapeAttr(p.key)}" placeholder="${escapeAttr(p.placeholder || '')}" value="${escapeAttr(String(val))}" ${p.step ? `step="${escapeAttr(p.step)}"` : ''} ${p.min !== undefined ? `min="${p.min}"` : ''} ${p.max !== undefined ? `max="${p.max}"` : ''} ${state.running ? 'disabled' : ''}>
+                                <input type="${p.type}" data-kind="param" data-key="${escapeAttr(p.key)}" placeholder="${escapeAttr(p.placeholder || '')}" value="${escapeAttr(String(val))}" ${p.step ? `step="${escapeAttr(p.step)}"` : ''} ${p.min !== undefined ? `min="${p.min}"` : ''} ${p.max !== undefined ? `max="${p.max}"` : ''} ${disableParam ? 'disabled' : ''}>
                             </div>
                         `);
                     });
@@ -1022,6 +1051,14 @@
         $("formContainer").innerHTML = html.join("");
         bindFormEvents();
         triggerPreview();
+        if (state.activeTask === "synthesize") {
+            updateSynthesizeSourceStatusUI();
+            applySynthesizeParamStateUI();
+            requestAnimationFrame(() => requestAnimationFrame(() => {
+                checkModelStatus();
+                inspectSynthesizeSource(false);
+            }));
+        }
     }
 
     // ========== 事件绑定 ==========
@@ -1032,6 +1069,9 @@
                 if (kind === 'path') s.paths[k] = e.target.value;
                 else if (kind === 'param') s.params[k] = e.target.value;
                 else s.backup_dir = e.target.value;
+                if (state.activeTask === "synthesize" && kind === "path" && k === "source_folder") {
+                    inspectSynthesizeSource(true);
+                }
                 triggerPreview();
             });
         });
@@ -1074,6 +1114,9 @@
                 if (k === 'backup_dir') { state.formData[state.activeTask].backup_dir = path; document.querySelector('input[data-kind="backup"]').value = path; }
                 else { state.formData[state.activeTask].paths[k] = path; document.querySelector(`input[data-kind="path"][data-key="${cssEscape(k)}"]`).value = path; }
                 await rememberRecentPath(path);
+                if (state.activeTask === "synthesize" && k === "source_folder") {
+                    inspectSynthesizeSource(true);
+                }
                 triggerPreview();
             });
         });
@@ -1128,6 +1171,150 @@
         s.logs.push({ lvl, txt });
     }
 
+    function getSynthesizeTaskState() {
+        const task = state.formData["synthesize"];
+        if (!task) return null;
+        if (!task.sourceAnalysis) {
+            task.sourceAnalysis = {
+                mode: "unknown",
+                ok: true,
+                message: "请选择源物体目录后自动检测",
+                detected_label: "",
+                source_folder: ""
+            };
+        }
+        return task;
+    }
+
+    function updateSynthesizeSourceStatusUI() {
+        if (state.activeTask !== "synthesize") return;
+        const task = getSynthesizeTaskState();
+        if (!task) return;
+        const box = $("synthesizeSourceStatus");
+        if (!box) return;
+        const info = task.sourceAnalysis || {};
+        const ok = Boolean(info.ok);
+        const color = ok ? "#16a34a" : "#dc2626";
+        const detected = String(info.detected_label || "").trim();
+        const extra = detected ? `（检测标签: ${escapeHtml(detected)}）` : "";
+        box.innerHTML = `<span style="font-size:13px;color:${color};">${escapeHtml(info.message || "待检测")}${extra}</span>`;
+    }
+
+    function applySynthesizeParamStateUI() {
+        if (state.activeTask !== "synthesize") return;
+        const task = getSynthesizeTaskState();
+        if (!task) return;
+        const mode = String(task.sourceAnalysis?.mode || "");
+        const targetInput = document.querySelector('input[data-kind="param"][data-key="target_label"]');
+        if (!targetInput) return;
+        const shouldDisableTarget = mode === "all_without_json" || mode === "all_with_json";
+        targetInput.disabled = state.running || shouldDisableTarget;
+    }
+
+    async function inspectSynthesizeSource(force = false) {
+        const task = getSynthesizeTaskState();
+        if (!task) return;
+        const sourceFolder = String(task.paths?.source_folder || "").trim();
+        if (!sourceFolder) {
+            task.sourceAnalysis = {
+                mode: "unknown",
+                ok: true,
+                message: "请选择源物体目录后自动检测",
+                detected_label: "",
+                source_folder: ""
+            };
+            updateSynthesizeSourceStatusUI();
+            applySynthesizeParamStateUI();
+            return;
+        }
+
+        if (!force && task.sourceAnalysis?.source_folder === sourceFolder) {
+            updateSynthesizeSourceStatusUI();
+            applySynthesizeParamStateUI();
+            return;
+        }
+
+        const token = ++state.synthesizeInspectToken;
+        task.sourceAnalysis = {
+            mode: "checking",
+            ok: true,
+            message: "正在检测源目录规则...",
+            detected_label: "",
+            source_folder: sourceFolder
+        };
+        updateSynthesizeSourceStatusUI();
+        applySynthesizeParamStateUI();
+
+        const api = window.pywebview?.api;
+        if (!api?.inspect_synthesize_source) {
+            task.sourceAnalysis = {
+                mode: "unknown",
+                ok: true,
+                message: "当前环境未连接后端，无法自动检测",
+                detected_label: "",
+                source_folder: sourceFolder
+            };
+            updateSynthesizeSourceStatusUI();
+            applySynthesizeParamStateUI();
+            return;
+        }
+
+        try {
+            const res = await api.inspect_synthesize_source({ source_folder: sourceFolder });
+            if (token !== state.synthesizeInspectToken) return;
+            const mode = String(res?.mode || "error");
+            const ok = Boolean(res?.ok);
+            const detectedLabel = String(res?.detected_label || "").trim();
+
+            if (ok && mode === "all_with_json") {
+                task.params.target_label = detectedLabel;
+                if (!String(task.params.label || "").trim()) {
+                    task.params.label = detectedLabel || "";
+                }
+                task.sourceAnalysis = {
+                    mode,
+                    ok: true,
+                    message: "检测到源目录图片全部带 JSON，已自动填充标签",
+                    detected_label: detectedLabel,
+                    source_folder: sourceFolder
+                };
+            } else if (ok && mode === "all_without_json") {
+                task.params.target_label = "";
+                task.sourceAnalysis = {
+                    mode,
+                    ok: true,
+                    message: "检测到源目录图片不带 JSON，请填写合成后标注标签",
+                    detected_label: "",
+                    source_folder: sourceFolder
+                };
+            } else {
+                task.sourceAnalysis = {
+                    mode,
+                    ok: false,
+                    message: String(res?.error || "源目录不合规，请整理后重试"),
+                    detected_label: "",
+                    source_folder: sourceFolder
+                };
+            }
+            const targetInput = document.querySelector('input[data-kind="param"][data-key="target_label"]');
+            if (targetInput) targetInput.value = task.params.target_label || "";
+            const labelInput = document.querySelector('input[data-kind="param"][data-key="label"]');
+            if (labelInput && task.params.label) labelInput.value = task.params.label;
+        } catch (e) {
+            if (token !== state.synthesizeInspectToken) return;
+            task.sourceAnalysis = {
+                mode: "error",
+                ok: false,
+                message: e?.message || "源目录检测失败",
+                detected_label: "",
+                source_folder: sourceFolder
+            };
+        }
+
+        updateSynthesizeSourceStatusUI();
+        applySynthesizeParamStateUI();
+    }
+
     // 模型状态检测与下载
     let modelDownloading = false;
 
@@ -1154,13 +1341,29 @@
             const modelLabel = currentModel === "precise" ? "精准模式(u2net)" : "轻量模式(u2net_small)";
             const modelNeeded = currentModel === "precise" ? "u2net" : "u2net_small";
             const modelReady = currentModel === "precise" ? res.u2net : res.u2net_small;
+            const modelDir = String(res.model_home || "");
+            const runtimeDevice = String(res.runtime_device || "");
+            const runtimeProviders = Array.isArray(res.runtime_providers) ? res.runtime_providers : [];
+            const runtimeText = [runtimeDevice, runtimeProviders.join(", ")].filter(Boolean).join(" / ");
+            const details = `
+                <div style="font-size:11px;color:#64748b;margin-top:6px;">模型目录: ${escapeHtml(modelDir || "未知")}</div>
+                <div style="font-size:11px;color:#64748b;margin-top:2px;">Runtime: ${escapeHtml(runtimeText || "未知")}</div>
+            `;
 
             if (modelReady) {
-                container.innerHTML = `<span style="color:#22c55e;font-size:13px;">✓ ${modelLabel} 已就绪</span>`;
+                container.innerHTML = `
+                    <div>
+                        <span style="color:#22c55e;font-size:13px;">✓ ${modelLabel} 已就绪</span>
+                        ${details}
+                    </div>
+                `;
             } else {
                 container.innerHTML = `
-                    <span style="color:#f59e0b;font-size:13px;">⚠ ${modelLabel} 未下载</span>
-                    <button class="model-download-btn" onclick="downloadModel('${modelNeeded}')" style="margin-left:12px;padding:4px 12px;font-size:12px;background:#3b82f6;color:#fff;border:none;border-radius:4px;cursor:pointer;">下载模型</button>
+                    <div>
+                        <span style="color:#f59e0b;font-size:13px;">⚠ ${modelLabel} 未下载</span>
+                        <button class="model-download-btn" onclick="downloadModel('${modelNeeded}')" style="margin-left:12px;padding:4px 12px;font-size:12px;background:#3b82f6;color:#fff;border:none;border-radius:4px;cursor:pointer;">下载模型</button>
+                        ${details}
+                    </div>
                 `;
             }
         } catch(e) {
@@ -1248,7 +1451,24 @@
     }
 
     function ensureTaskState(taskKey) {
-        if (!state.formData[taskKey]) state.formData[taskKey] = { paths: {}, params: {}, backup_dir: "", input_mode: "folder", logs: [], result: null, previewData: null };
+        if (!state.formData[taskKey]) {
+            state.formData[taskKey] = {
+                paths: {},
+                params: {},
+                backup_dir: "",
+                input_mode: "folder",
+                logs: [],
+                result: null,
+                previewData: null,
+                sourceAnalysis: {
+                    mode: "unknown",
+                    ok: true,
+                    message: "请选择源物体目录后自动检测",
+                    detected_label: "",
+                    source_folder: ""
+                }
+            };
+        }
     }
 
     // 预览逻辑 (抽屉详情模式)
@@ -1336,10 +1556,32 @@
     async function runTask() {
         if(state.running) return;
         try {
-            saveForm(); const t = TASKS[state.activeTask], p = buildPayload();
+            saveForm();
+            const t = TASKS[state.activeTask];
+            if (state.activeTask === "synthesize") {
+                await inspectSynthesizeSource(false);
+                saveForm();
+            }
+            const p = buildPayload();
 
             t.paths.forEach(f => { if(f.safeOnly && state.mode==="in_place") return; if(f.required && !p.paths[f.key]) throw new Error(`请指定${f.label}`); });
             t.params.forEach(f => { if(f.required && p.params[f.key]===undefined) throw new Error(`请填写参数: ${f.label}`); });
+
+            if (state.activeTask === "synthesize") {
+                await inspectSynthesizeSource(false);
+                const synth = getSynthesizeTaskState();
+                const analysis = synth?.sourceAnalysis || {};
+                if (analysis.mode === "checking") {
+                    throw new Error("源目录检测尚未完成，请稍后重试");
+                }
+                if (analysis.ok === false) {
+                    throw new Error(analysis.message || "源目录不合规，请整理后再执行");
+                }
+                if (analysis.mode === "all_without_json" && !String(p.params.label || "").trim()) {
+                    throw new Error("源图片不带 JSON 时，必须填写合成后标注标签");
+                }
+            }
+
             if(state.mode==="in_place") {
                 if(!p.backup_dir) throw new Error("覆盖模式必须指定备份目录，以防数据丢失");
                 const requireConfirm = Boolean(getAppSettings().workflow?.require_inplace_confirm ?? true);
@@ -1788,6 +2030,13 @@
             }
             return result;
         };
+        const settingsBtn = document.getElementById("p3SettingsBtn");
+        settingsBtn?.addEventListener("click", (e) => {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            if (overlay) overlay.classList.add("hidden");
+            window.alert("系统设置还在开发中");
+        }, true);
 
         const toggleDebug = (open) => {
             if (!debugOverlay) return;

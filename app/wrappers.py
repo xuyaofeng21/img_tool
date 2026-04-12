@@ -296,6 +296,117 @@ def preview_path_info(payload: dict[str, Any]) -> dict[str, Any]:
         }
 
 
+def _collect_source_images_for_synthesize(source_folder: Path) -> list[Path]:
+    return [
+        p
+        for p in sorted(source_folder.iterdir(), key=lambda p: str(p))
+        if p.is_file() and p.suffix.lower() in {".png", ".jpg", ".jpeg", ".bmp"}
+    ]
+
+
+def _extract_polygon_labels_from_json(json_path: Path) -> set[str]:
+    with open(json_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    labels: set[str] = set()
+    for shape in data.get("shapes", []):
+        if not isinstance(shape, dict):
+            continue
+        if shape.get("shape_type") != "polygon":
+            continue
+        label = str(shape.get("label", "")).strip()
+        if label:
+            labels.add(label)
+    return labels
+
+
+def inspect_synthesize_source_info(payload: dict[str, Any]) -> dict[str, Any]:
+    try:
+        if not isinstance(payload, dict):
+            raise ValueError("payload 必须是对象")
+
+        paths_data = payload.get("paths", {}) if isinstance(payload.get("paths"), dict) else {}
+        source_folder = _collect_first_existing_dir(
+            {**paths_data, **payload},
+            ["source_folder", "input_dir", "source_dir", "path"],
+        )
+        if source_folder is None:
+            raise ValueError("源物体目录无效")
+
+        source_files = _collect_source_images_for_synthesize(source_folder)
+        if not source_files:
+            raise ValueError("源物体目录为空或没有可用图片")
+
+        with_json: list[tuple[Path, Path]] = []
+        without_json: list[Path] = []
+        for img_path in source_files:
+            json_path = img_path.with_suffix(".json")
+            if json_path.exists():
+                with_json.append((img_path, json_path))
+            else:
+                without_json.append(img_path)
+
+        result: dict[str, Any] = {
+            "ok": True,
+            "mode": "",
+            "source_folder": str(source_folder),
+            "total_images": len(source_files),
+            "with_json_count": len(with_json),
+            "without_json_count": len(without_json),
+            "detected_label": "",
+            "labels": [],
+            "error": "",
+        }
+
+        if with_json and without_json:
+            result["ok"] = False
+            result["mode"] = "mixed"
+            result["error"] = "检测到源文件目录混合了带 JSON 和不带 JSON 的图片，请先整理目录后再执行。"
+            return result
+
+        if not with_json:
+            result["mode"] = "all_without_json"
+            return result
+
+        all_labels: set[str] = set()
+        for _, json_path in with_json:
+            try:
+                labels = _extract_polygon_labels_from_json(json_path)
+            except Exception as exc:
+                result["ok"] = False
+                result["mode"] = "invalid_json"
+                result["error"] = f"JSON 解析失败: {json_path.name} ({exc})"
+                return result
+            if not labels:
+                result["ok"] = False
+                result["mode"] = "missing_label"
+                result["error"] = f"检测到源文件带 JSON，但存在无有效 polygon 标签文件: {json_path.name}"
+                return result
+            all_labels.update(labels)
+
+        result["labels"] = sorted(all_labels)
+        if len(all_labels) != 1:
+            result["ok"] = False
+            result["mode"] = "label_mismatch"
+            result["error"] = "检测到源文件带 JSON，但是部分 JSON 的 label 不一致。"
+            return result
+
+        result["mode"] = "all_with_json"
+        result["detected_label"] = next(iter(all_labels))
+        return result
+    except Exception as exc:
+        return {
+            "ok": False,
+            "mode": "error",
+            "source_folder": "",
+            "total_images": 0,
+            "with_json_count": 0,
+            "without_json_count": 0,
+            "detected_label": "",
+            "labels": [],
+            "error": str(exc),
+        }
+
+
 def _resolve_preview_targets(payload: dict[str, Any]) -> tuple[list[Path], list[str]]:
     if not isinstance(payload, dict):
         raise ValueError("payload 必须是对象")
@@ -1510,23 +1621,46 @@ def _run_synthesize(
     rotation_angle = float(params.get("rotation_angle", 30))
     grass_label = str(params.get("grass_label", "grass")).strip()
 
-    if not label:
-        raise ValueError("标注名称不能为空")
-
     # 获取路径
     source_folder = _collect_first_existing_dir(paths, ["source_folder", "input_dir"])
     bg_json_folder = _collect_first_existing_dir(paths, ["bg_json_folder", "source_dir"])
-    output_folder = _ensure_safe_output_dir(str(paths.get("output_folder", "")), [source_folder, bg_json_folder], "output_dir")
 
     if source_folder is None:
         raise ValueError("源物体目录无效")
     if bg_json_folder is None:
         raise ValueError("背景图目录无效")
+    output_folder = _ensure_safe_output_dir(str(paths.get("output_folder", "")), [source_folder, bg_json_folder], "output_dir")
 
     source_folder = Path(source_folder)
     bg_json_folder = Path(bg_json_folder)
     output_folder = Path(output_folder)
     output_folder.mkdir(parents=True, exist_ok=True)
+
+    source_inspection = inspect_synthesize_source_info({"source_folder": str(source_folder)})
+    if not source_inspection.get("ok"):
+        raise ValueError(str(source_inspection.get("error") or "源目录校验失败"))
+
+    source_mode = str(source_inspection.get("mode", ""))
+    detected_label = str(source_inspection.get("detected_label", "")).strip()
+
+    if source_mode == "all_with_json":
+        if not detected_label:
+            raise ValueError("源目录 JSON 标签检测失败：未检测到唯一标签。")
+        if target_label and target_label != detected_label:
+            raise ValueError(
+                f"源标注标签与源目录不一致：当前为 '{target_label}'，检测到唯一标签为 '{detected_label}'。"
+            )
+        target_label = detected_label
+        if not label:
+            label = detected_label
+    elif source_mode == "all_without_json":
+        if target_label:
+            log("warn", "检测到源目录图片不带 JSON，已忽略源标注标签。")
+        target_label = None
+        if not label:
+            raise ValueError("源图片不带 JSON 时，必须填写合成后标注标签。")
+    else:
+        raise ValueError(str(source_inspection.get("error") or "源目录校验失败"))
 
     log("info", f"合成任务开始: label={label}, max_objects={max_objects}")
 

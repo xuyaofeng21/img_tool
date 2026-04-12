@@ -125,3 +125,15 @@ def test_get_task_status_and_logs_for_unknown_task():
     assert logs["ok"] is False
     assert logs["error"] == "任务不存在"
 
+
+def test_inspect_synthesize_source_api_exists_and_returns_shape(tmp_path):
+    source = tmp_path / "source"
+    source.mkdir()
+    manager = TaskManager()
+    bridge = ApiBridge(manager)
+
+    result = bridge.inspect_synthesize_source({"source_folder": str(source)})
+
+    assert isinstance(result, dict)
+    assert "ok" in result
+    assert "mode" in result

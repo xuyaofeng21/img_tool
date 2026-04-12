@@ -13,7 +13,29 @@ except Exception:  # pragma: no cover
 
 from .settings_store import DEFAULT_SETTINGS_STORE, SettingsStore
 from .tasks import TaskManager
-from .wrappers import preview_path_info
+from .wrappers import inspect_synthesize_source_info, preview_path_info
+
+
+def _resolve_u2net_home() -> Path:
+    """Resolve rembg model home with rembg rules (U2NET_HOME/XDG_DATA_HOME)."""
+    try:
+        from rembg.sessions.base import BaseSession
+
+        return Path(BaseSession.u2net_home()).expanduser().resolve()
+    except Exception:
+        return (Path.home() / ".u2net").expanduser().resolve()
+
+
+def _normalize_model_name(model_name: str) -> str:
+    key = str(model_name or "").strip().lower()
+    alias = {
+        "u2net": "u2net",
+        "precise": "u2net",
+        "u2netp": "u2netp",
+        "u2net_small": "u2netp",
+        "small": "u2netp",
+    }
+    return alias.get(key, key)
 
 
 class ApiBridge:
@@ -81,6 +103,9 @@ class ApiBridge:
 
     def preview_path(self, payload: dict[str, Any]) -> dict[str, Any]:
         return preview_path_info(payload)
+
+    def inspect_synthesize_source(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return inspect_synthesize_source_info(payload)
 
     def get_settings(self) -> dict[str, Any]:
         try:
@@ -154,17 +179,37 @@ class ApiBridge:
     def check_model_status(self) -> dict[str, Any]:
         """检查 u2net 模型是否已下载"""
         try:
-            home = Path.home()
-            u2net_dir = home / ".u2net"
+            u2net_dir = _resolve_u2net_home()
 
             u2net_exists = (u2net_dir / "u2net.onnx").exists()
-            u2net_small_exists = (u2net_dir / "u2net_small.onnx").exists()
+            # rembg 新版使用 u2netp.onnx，兼容历史命名 u2net_small.onnx
+            u2netp_exists = (u2net_dir / "u2netp.onnx").exists()
+            u2net_small_legacy_exists = (u2net_dir / "u2net_small.onnx").exists()
+            u2net_small_exists = u2netp_exists or u2net_small_legacy_exists
+            onnx_files = sorted(
+                [p.name for p in u2net_dir.glob("*.onnx")] if u2net_dir.exists() else []
+            )
+            runtime_device = "unknown"
+            runtime_providers: list[str] = []
+            try:
+                import onnxruntime as ort
+
+                runtime_device = str(ort.get_device())
+                runtime_providers = list(ort.get_available_providers())
+            except Exception:
+                pass
 
             return {
                 "ok": True,
+                "model_home": str(u2net_dir),
                 "u2net": u2net_exists,
                 "u2net_small": u2net_small_exists,
+                "u2netp": u2netp_exists,
+                "u2net_small_legacy": u2net_small_legacy_exists,
+                "files": onnx_files,
                 "both": u2net_exists and u2net_small_exists,
+                "runtime_device": runtime_device,
+                "runtime_providers": runtime_providers,
             }
         except Exception as exc:
             import traceback
@@ -174,9 +219,24 @@ class ApiBridge:
     def download_model(self, model_name: str = "u2net") -> dict[str, Any]:
         """下载 rembg 模型"""
         try:
-            from rembg import download
-            download.download_model(model_name=model_name)
-            return {"ok": True}
+            normalized_model = _normalize_model_name(model_name)
+            if normalized_model not in {"u2net", "u2netp"}:
+                return {
+                    "ok": False,
+                    "error": f"不支持的模型: {model_name}（支持: u2net / u2net_small）",
+                }
+
+            # rembg>=2.0.75 可用接口
+            from rembg.bg import download_models
+
+            download_models((normalized_model,))
+            status = self.check_model_status()
+            return {
+                "ok": True,
+                "requested_model": model_name,
+                "normalized_model": normalized_model,
+                "status": status,
+            }
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
 
