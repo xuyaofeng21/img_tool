@@ -32,6 +32,7 @@ Thumbs.db
 .omx/
 .codex/
 img_tool_synthesize_cache/
+models/
 
 # Logs
 *.log

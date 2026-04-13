@@ -400,7 +400,7 @@
                 <input type="radio" name="mode" value="in_place">
                 <div class="mode-info">
                     <div class="mode-title">覆盖原文件</div>
-                    <div class="mode-desc">直接修改源文件 (需设置备份目录)</div>
+                    <div class="mode-desc">直接修改源文件，请提前备份</div>
                 </div>
             </label>
         </div>
@@ -543,7 +543,7 @@
             确认覆盖原文件
         </div>
         <div class="modal-body" id="modalDesc">
-            此操作将直接修改源文件夹中的文件。系统会在操作前备份到指定目录，请确认备份路径正确无误。
+            此操作将直接修改源文件夹中的文件，请注意备份！
         </div>
         <div class="modal-footer">
             <button class="btn" id="btnCancel">取消</button>
@@ -623,7 +623,6 @@
                 { key: "label", label: "合成后标注标签", hint: "输出标注名称（源图无 JSON 时必填）", placeholder: "如: 刺猬", required: true, type: "text" },
                 { key: "max_objects", label: "放置数量", hint: "每张背景图放置物体数量", placeholder: "3", type: "number", step: "1", min: "1", max: "10", default: 3 },
                 { key: "max_object_size", label: "物体最大尺寸", hint: "物体最大边长(像素)", placeholder: "350", type: "number", step: "10", min: "50", max: "800", default: 350 },
-                { key: "model", label: "抠图模型", hint: "small=快, precise=准", type: "radio", default: "small", options: [ { label: "轻量(快)", value: "small" }, { label: "精准(慢)", value: "precise" } ] },
                 { key: "rotation_angle", label: "最大旋转角度", hint: "随机旋转范围", placeholder: "30", type: "number", step: "5", min: "0", max: "90", default: 30 },
                 { key: "grass_label", label: "地面标签名", hint: "表示地面的标签名", placeholder: "grass", type: "text", default: "grass" }
             ]
@@ -962,12 +961,10 @@
             html.push(`
                 <div class="form-group" style="padding: 16px; background: var(--danger-bg); border: 1px solid var(--danger-border); border-radius: var(--radius-md); margin-top: 20px;">
                     <div class="label-row">
-                        <label style="color: var(--danger);">覆盖前备份目录 <span style="color:red">*</span></label>
-                        <span class="hint" style="color: var(--danger);">必须指定，防止源文件损坏</span>
+                        <label style="color: var(--danger);">⚠️ 覆盖原文件模式</label>
                     </div>
-                    <div class="input-wrapper" style="margin-top: 8px;">
-                        <input type="text" data-kind="backup" placeholder="选择备份存放位置..." value="${escapeAttr(ts.backup_dir || '')}" ${state.running ? 'disabled' : ''}>
-                        <button class="btn btn-danger" data-browse="backup_dir" data-type="folder" ${state.running ? 'disabled' : ''} style="background:var(--danger); border-color:var(--danger); color:white;">选择目录</button>
+                    <div style="margin-top: 8px; color: var(--danger); font-size: 13px;">
+                        此操作将直接修改源文件夹中的文件，请提前备份！
                     </div>
                 </div>
             `);
@@ -1335,53 +1332,50 @@
                 return;
             }
 
-            // 获取当前选择的模型
-            const s = state.formData["synthesize"];
-            const currentModel = s?.params?.model || "small";
-            const modelLabel = currentModel === "precise" ? "精准模式(u2net)" : "轻量模式(u2net_small)";
-            const modelNeeded = currentModel === "precise" ? "u2net" : "u2net_small";
-            const modelReady = currentModel === "precise" ? res.u2net : res.u2net_small;
+            // 模型状态
+            const modelReady = res.u2net === true;
             const modelDir = String(res.model_home || "");
-            const runtimeDevice = String(res.runtime_device || "");
-            const runtimeProviders = Array.isArray(res.runtime_providers) ? res.runtime_providers : [];
-            const runtimeText = [runtimeDevice, runtimeProviders.join(", ")].filter(Boolean).join(" / ");
+            const onnxFiles = Array.isArray(res.files) ? res.files : [];
+            const onnxFilesText = onnxFiles.length > 0 ? onnxFiles.join(", ") : "无";
+            const searchResults = Array.isArray(res.search_results) ? res.search_results : [];
+            const searchDetails = searchResults.map(r => `${r.label}: ${r.files.join(", ") || "无文件"}`).join(" | ");
             const details = `
                 <div style="font-size:11px;color:#64748b;margin-top:6px;">模型目录: ${escapeHtml(modelDir || "未知")}</div>
-                <div style="font-size:11px;color:#64748b;margin-top:2px;">Runtime: ${escapeHtml(runtimeText || "未知")}</div>
+                <div style="font-size:11px;color:#64748b;margin-top:2px;">ONNX文件: ${escapeHtml(onnxFilesText)}</div>
+                <div style="font-size:11px;color:#64748b;margin-top:2px;">搜索结果: ${escapeHtml(searchDetails || "无")}</div>
             `;
 
             if (modelReady) {
                 container.innerHTML = `
                     <div>
-                        <span style="color:#22c55e;font-size:13px;">✓ ${modelLabel} 已就绪</span>
+                        <span style="color:#22c55e;font-size:13px;">✓ u2net 模型已就绪</span>
                         ${details}
                     </div>
                 `;
             } else {
                 container.innerHTML = `
                     <div>
-                        <span style="color:#f59e0b;font-size:13px;">⚠ ${modelLabel} 未下载</span>
-                        <button class="model-download-btn" onclick="downloadModel('${modelNeeded}')" style="margin-left:12px;padding:4px 12px;font-size:12px;background:#3b82f6;color:#fff;border:none;border-radius:4px;cursor:pointer;">下载模型</button>
+                        <span style="color:#f59e0b;font-size:13px;">⚠ u2net 模型未下载</span>
+                        <button class="model-download-btn" onclick="downloadModel()" style="margin-left:12px;padding:4px 12px;font-size:12px;background:#3b82f6;color:#fff;border:none;border-radius:4px;cursor:pointer;">下载模型</button>
                         ${details}
                     </div>
                 `;
             }
         } catch(e) {
-            container.innerHTML = `<span style="color:#f59e0b;font-size:13px;">错误: ${e.message}</span>`;
+            container.innerHTML = `<span style="color:#f59e0b;font-size:13px;">错误: ${e.message || String(e)}</span>`;
         }
     }
 
-    async function downloadModel(modelName) {
+    async function downloadModel() {
         if (modelDownloading || !hasApi()) return;
         const btn = document.querySelector(".model-download-btn");
         if (btn) { btn.disabled = true; btn.textContent = "下载中..."; }
         modelDownloading = true;
-        const label = modelName === "u2net" ? "精准模式" : "轻量模式";
-        log("info", `开始下载抠图模型 (${label})...`);
+        log("info", "开始下载 u2net 模型，请稍候...");
         try {
-            const res = await window.pywebview.api.download_model(modelName);
+            const res = await window.pywebview.api.download_model();
             if (res.ok) {
-                log("info", "模型下载完成");
+                log("info", "模型下载完成，已保存到项目 models/ 目录");
                 checkModelStatus();
             } else {
                 log("error", "下载失败: " + (res.error || "未知错误"));
@@ -1424,7 +1418,7 @@
     // ========== 核心业务逻辑 ==========
     function buildPayload(forPrev=false) {
         ensureTaskState(state.activeTask);
-        const t = TASKS[state.activeTask], s = state.formData[state.activeTask], p = {task:state.activeTask, mode:state.mode, paths:{}, params:{}, backup_dir:s.backup_dir};
+        const t = TASKS[state.activeTask], s = state.formData[state.activeTask], p = {task:state.activeTask, mode:state.mode, paths:{}, params:{}};
         t.paths.forEach(f => { if(!(forPrev && f.safeOnly)){ const v=String(s.paths[f.key]||"").trim(); if(v) p.paths[f.key]=v; } });
         t.params.forEach(f => { const v=String(s.params[f.key]||"").trim(); if(v) p.params[f.key]=f.type==='number'?Number(v):v; });
         if(t.supportsInputMode) {
@@ -1583,12 +1577,11 @@
             }
 
             if(state.mode==="in_place") {
-                if(!p.backup_dir) throw new Error("覆盖模式必须指定备份目录，以防数据丢失");
                 const requireConfirm = Boolean(getAppSettings().workflow?.require_inplace_confirm ?? true);
 
                 if (requireConfirm) {
                     const modal = $("modalConfirm");
-                    $("modalDesc").textContent = `此操作将直接修改源文件夹中的文件。系统会在操作前备份到：${p.backup_dir}，请确认备份路径正确无误。`;
+                    $("modalDesc").textContent = "此操作将直接修改源文件夹中的文件，请注意备份！";
                     modal.classList.remove('hidden');
 
                     const confirmed = await new Promise(res => {
@@ -1776,7 +1769,7 @@
 
     function injectUi() {
         const headerActions = document.querySelector(".header-actions");
-        if (headerActions && !document.getElementById("p3DebugBtn")) {
+        if (headerActions && !document.getElementById("p3SettingsBtn")) {
             const settingsBtn = document.createElement("button");
             settingsBtn.id = "p3SettingsBtn";
             settingsBtn.className = "btn p3-btn";

@@ -74,11 +74,13 @@ def process_single_json(args):
         return f"❌ {json_path.name} 处理失败: {str(e)}"
 
 
-def update_image_paths_in_json(json_folder_path, image_folder_path):
+def update_image_paths_in_json(json_folder_path, image_folder_path, source_json_dir=None):
     """多进程批量更新JSON文件中的图片路径（JSON文件名匹配图片名）"""
     image_extensions = {'.jpg', '.jpeg', '.png', '.bmp', '.gif', '.tiff', '.webp'}
     json_folder = Path(json_folder_path).resolve()
     image_folder = Path(image_folder_path).resolve()
+    # source_json_dir 用于计算正确的相对路径（文件模式下传入原始目录）
+    source_json_folder = Path(source_json_dir).resolve() if source_json_dir else json_folder
 
     # 验证目录有效性
     if not json_folder.is_dir():
@@ -107,8 +109,8 @@ def update_image_paths_in_json(json_folder_path, image_folder_path):
         print("未找到任何JSON文件")
         return
 
-    # 计算JSON到图片文件夹的相对路径（全局统一）
-    relative_image_path = os.path.relpath(image_folder, json_folder).replace(os.sep, '/')
+    # 计算JSON到图片文件夹的相对路径（基于原始JSON目录计算，确保路径在目标位置正确）
+    relative_image_path = os.path.relpath(image_folder, source_json_folder).replace(os.sep, '/')
     print(f"JSON文件夹: {json_folder}")
     print(f"图片文件夹: {image_folder}")
     print(f"相对路径: {relative_image_path}")
@@ -142,13 +144,16 @@ if __name__ == "__main__":
         mp.set_start_method('spawn', force=True)
 
     # 命令行参数或交互式输入
-    if len(sys.argv) == 3:
+    # 用法: python 更改json路径.py <json文件夹> <图片文件夹> [原始json目录]
+    if len(sys.argv) >= 3:
         json_folder = sys.argv[1]
         image_folder = sys.argv[2]
+        source_json_dir = sys.argv[3] if len(sys.argv) > 3 else None
     else:
         print("请输入JSON文件目录和图片文件目录")
         json_folder = input("JSON文件目录: ").strip()
         image_folder = input("图片文件目录: ").strip()
+        source_json_dir = None
 
-    update_image_paths_in_json(json_folder, image_folder)
+    update_image_paths_in_json(json_folder, image_folder, source_json_dir)
     '''1112'''

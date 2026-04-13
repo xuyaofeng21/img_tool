@@ -4,13 +4,14 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "img-tool"
-version = "0.1.0"
+version = "1.0.2"
 description = "离线桌面图片批量处理工具箱（pywebview + Python）"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "imagehash>=4.3.2",
     "numpy>=2.2.0",
+    "onnxruntime==1.19.0",
     "opencv-python>=4.10.0.84",
     "pillow>=11.0.0",
     "pyinstaller>=6.12.0",

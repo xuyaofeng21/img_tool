@@ -16,26 +16,54 @@ from .tasks import TaskManager
 from .wrappers import inspect_synthesize_source_info, preview_path_info
 
 
+def _project_models_dir() -> Path:
+    """Get project-local models directory (./models/)."""
+    return Path(__file__).resolve().parent.parent / "models"
+
+
 def _resolve_u2net_home() -> Path:
-    """Resolve rembg model home with rembg rules (U2NET_HOME/XDG_DATA_HOME)."""
+    """Resolve rembg model home - prioritizes project-local models/ directory."""
+    # Project-local models directory takes priority
+    local_models = _project_models_dir()
+    return local_models
+
+
+def _get_all_model_dirs() -> list[tuple[str, Path]]:
+    """Get all possible model directories to search for u2net models."""
+    dirs: list[tuple[str, Path]] = []
+
+    # Project-local models directory (highest priority for display)
+    local_models = _project_models_dir()
+    dirs.append(("项目models/", local_models))
+
+    # U2NET_HOME env
+    u2net_home = os.environ.get("U2NET_HOME")
+    if u2net_home:
+        dirs.append(("U2NET_HOME", Path(u2net_home).expanduser().resolve()))
+
+    # User home .u2net
+    home_u2net = Path.home() / ".u2net"
+    if home_u2net not in [d[1] for d in dirs]:
+        dirs.append(("用户目录~/.u2net", home_u2net))
+
+    # rembg standard location (try lazily, don't block)
     try:
         from rembg.sessions.base import BaseSession
+        p = Path(BaseSession.u2net_home()).expanduser().resolve()
+        if p not in [d[1] for d in dirs]:
+            dirs.append(("rembg标准", p))
+    except BaseException:
+        pass
 
-        return Path(BaseSession.u2net_home()).expanduser().resolve()
-    except Exception:
-        return (Path.home() / ".u2net").expanduser().resolve()
+    return dirs
 
 
 def _normalize_model_name(model_name: str) -> str:
+    """Normalize model name - only u2net is supported now."""
     key = str(model_name or "").strip().lower()
-    alias = {
-        "u2net": "u2net",
-        "precise": "u2net",
-        "u2netp": "u2netp",
-        "u2net_small": "u2netp",
-        "small": "u2netp",
-    }
-    return alias.get(key, key)
+    if key in ("u2net", "precise", "u2netp", "u2net_small", "small"):
+        return "u2net"
+    return "u2net"
 
 
 class ApiBridge:
@@ -180,36 +208,34 @@ class ApiBridge:
         """检查 u2net 模型是否已下载"""
         try:
             u2net_dir = _resolve_u2net_home()
+            all_dirs = _get_all_model_dirs()
 
-            u2net_exists = (u2net_dir / "u2net.onnx").exists()
-            # rembg 新版使用 u2netp.onnx，兼容历史命名 u2net_small.onnx
-            u2netp_exists = (u2net_dir / "u2netp.onnx").exists()
-            u2net_small_legacy_exists = (u2net_dir / "u2net_small.onnx").exists()
-            u2net_small_exists = u2netp_exists or u2net_small_legacy_exists
-            onnx_files = sorted(
-                [p.name for p in u2net_dir.glob("*.onnx")] if u2net_dir.exists() else []
-            )
-            runtime_device = "unknown"
-            runtime_providers: list[str] = []
-            try:
-                import onnxruntime as ort
+            # 搜索所有目录
+            u2net_exists = False
+            all_onnx_files: list[str] = []
+            search_results: list[dict[str, Any]] = []
 
-                runtime_device = str(ort.get_device())
-                runtime_providers = list(ort.get_available_providers())
-            except Exception:
-                pass
+            for label, dir_path in all_dirs:
+                if dir_path.exists():
+                    onnx_files = sorted([p.name for p in dir_path.glob("*.onnx")])
+                    all_onnx_files.extend(onnx_files)
+                    search_results.append({
+                        "path": str(dir_path),
+                        "label": label,
+                        "files": onnx_files,
+                    })
+                    if "u2net.onnx" in onnx_files:
+                        u2net_exists = True
+
+            # 去重
+            all_onnx_files = sorted(set(all_onnx_files))
 
             return {
                 "ok": True,
                 "model_home": str(u2net_dir),
                 "u2net": u2net_exists,
-                "u2net_small": u2net_small_exists,
-                "u2netp": u2netp_exists,
-                "u2net_small_legacy": u2net_small_legacy_exists,
-                "files": onnx_files,
-                "both": u2net_exists and u2net_small_exists,
-                "runtime_device": runtime_device,
-                "runtime_providers": runtime_providers,
+                "files": all_onnx_files,
+                "search_results": search_results,
             }
         except Exception as exc:
             import traceback
@@ -217,24 +243,79 @@ class ApiBridge:
             return {"ok": False, "error": str(exc)}
 
     def download_model(self, model_name: str = "u2net") -> dict[str, Any]:
-        """下载 rembg 模型"""
+        """下载 u2net 模型到项目本地 models/ 目录"""
         try:
-            normalized_model = _normalize_model_name(model_name)
-            if normalized_model not in {"u2net", "u2netp"}:
+            # 只支持 u2net
+            normalized_model = "u2net"
+
+            # 检查 onnxruntime 是否可用（加载成功）
+            onnx_available = True
+            try:
+                import onnxruntime  # type: ignore
+                # 验证能否实际加载
+                _ = onnxruntime.get_device()
+            except Exception:
+                onnx_available = False
+
+            if not onnx_available:
+                # 自动安装 onnxruntime 1.19.0（已知可用版本）
+                try:
+                    import subprocess
+                    python_exe = sys.executable
+                    result = subprocess.run(
+                        [python_exe, "-m", "pip", "install", "onnxruntime==1.19.0"],
+                        capture_output=True,
+                        text=True,
+                        timeout=120,
+                    )
+                    if result.returncode != 0:
+                        return {
+                            "ok": False,
+                            "error": f"自动安装 onnxruntime 失败: {result.stderr}",
+                        }
+                except Exception as e:
+                    return {
+                        "ok": False,
+                        "error": f"自动安装 onnxruntime 失败: {str(e)}",
+                    }
+
+            # 项目本地 models 目录
+            models_dir = _project_models_dir()
+            models_dir.mkdir(parents=True, exist_ok=True)
+
+            # 设置环境变量让 rembg 下载到项目目录
+            original_u2net_home = os.environ.get("U2NET_HOME")
+            os.environ["U2NET_HOME"] = str(models_dir)
+
+            downloaded = False
+            download_error = ""
+            try:
+                from rembg.bg import download_models
+
+                download_models(("u2net",))
+                downloaded = (models_dir / "u2net.onnx").exists()
+            except SystemExit as e:
+                download_error = f"下载被中断: {e}"
+            except BaseException as e:
+                download_error = str(e)
+            finally:
+                # 恢复原环境变量
+                if original_u2net_home is None:
+                    os.environ.pop("U2NET_HOME", None)
+                else:
+                    os.environ["U2NET_HOME"] = original_u2net_home
+
+            if not downloaded and download_error:
                 return {
                     "ok": False,
-                    "error": f"不支持的模型: {model_name}（支持: u2net / u2net_small）",
+                    "error": f"下载失败: {download_error}",
                 }
 
-            # rembg>=2.0.75 可用接口
-            from rembg.bg import download_models
-
-            download_models((normalized_model,))
             status = self.check_model_status()
             return {
                 "ok": True,
-                "requested_model": model_name,
-                "normalized_model": normalized_model,
+                "downloaded": downloaded,
+                "models_dir": str(models_dir),
                 "status": status,
             }
         except Exception as exc:

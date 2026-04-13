@@ -871,10 +871,9 @@ def _run_bgr2rgb(paths: dict[str, Any], params: dict[str, Any], mode: str, backu
         process_output_dir = Path(tempfile.mkdtemp(prefix="bgr2rgb_out_"))
         result_output_path = output_dir
     else:
-        if not backup_dir:
-            raise ValueError("原地修改模式必须提供 backup_dir")
-        backup_session = _backup_files(source_files, backup_dir, "bgr2rgb") if input_mode == "file" else _backup_directories("bgr2rgb", [default_output_dir], backup_dir, log)
-        backup_path = str(backup_session)
+        if backup_dir:
+            backup_session = _backup_files(source_files, backup_dir, "bgr2rgb") if input_mode == "file" else _backup_directories("bgr2rgb", [default_output_dir], backup_dir, log)
+            backup_path = str(backup_session)
         process_output_dir = Path(tempfile.mkdtemp(prefix="bgr2rgb_out_"))
         result_output_path = default_output_dir
 
@@ -970,10 +969,9 @@ def _run_rename(paths: dict[str, Any], params: dict[str, Any], mode: str, backup
     if mode == "safe_copy":
         target_dir = _ensure_safe_output_dir(str(paths.get("target_dir", "")), [source_dir], "target_dir")
     else:
-        if not backup_dir:
-            raise ValueError("原地修改模式必须提供 backup_dir")
-        backup_session = _backup_files(stage_inputs, backup_dir, "rename2") if input_mode == "file" else _backup_directories("rename2", [source_dir], backup_dir, log)
-        backup_path = str(backup_session)
+        if backup_dir:
+            backup_session = _backup_files(stage_inputs, backup_dir, "rename2") if input_mode == "file" else _backup_directories("rename2", [source_dir], backup_dir, log)
+            backup_path = str(backup_session)
         target_dir = process_output_dir
 
     try:
@@ -1081,10 +1079,9 @@ def _run_select_diverse(
         process_output_dir = Path(tempfile.mkdtemp(prefix="select_diverse_out_"))
         result_output_path = output_dir
     else:
-        if not backup_dir:
-            raise ValueError("原地修改模式必须提供 backup_dir")
-        backup_session = _backup_files(source_files, backup_dir, "select_diverse") if input_mode == "file" else _backup_directories("select_diverse", [inplace_output_path], backup_dir, log)
-        backup_path = str(backup_session)
+        if backup_dir:
+            backup_session = _backup_files(source_files, backup_dir, "select_diverse") if input_mode == "file" else _backup_directories("select_diverse", [inplace_output_path], backup_dir, log)
+            backup_path = str(backup_session)
         process_output_dir = Path(tempfile.mkdtemp(prefix="select_diverse_out_"))
         result_output_path = inplace_output_path
 
@@ -1224,10 +1221,9 @@ def _run_json_path(paths: dict[str, Any], mode: str, backup_dir: str, log: LogFn
             output_dir = _ensure_safe_output_dir(str(paths.get("output_dir", "")), [source_json.parent], "output_dir")
             output_path = output_dir
         else:
-            if not backup_dir:
-                raise ValueError("原地修改模式必须提供 backup_dir")
-            backup_session = _backup_files([source_json], backup_dir, "json_path")
-            backup_path = str(backup_session)
+            if backup_dir:
+                backup_session = _backup_files([source_json], backup_dir, "json_path")
+                backup_path = str(backup_session)
             output_path = result_output_path
 
         try:
@@ -1249,10 +1245,9 @@ def _run_json_path(paths: dict[str, Any], mode: str, backup_dir: str, log: LogFn
             lines = run_script(output_dir)
             output_path = output_dir
         else:
-            if not backup_dir:
-                raise ValueError("原地修改模式必须提供 backup_dir")
-            backup_session = _backup_directories("json_path", [json_dir], backup_dir, log)
-            backup_path = str(backup_session)
+            if backup_dir:
+                backup_session = _backup_directories("json_path", [json_dir], backup_dir, log)
+                backup_path = str(backup_session)
             lines = run_script(json_dir)
             output_path = json_dir
 
@@ -1331,10 +1326,9 @@ def _run_rename_v2(paths: dict[str, Any], params: dict[str, Any], mode: str, bac
     if mode == "safe_copy":
         target_dir = _ensure_safe_output_dir(str(paths.get("target_dir", "")), source_roots, "target_dir")
     else:
-        if not backup_dir:
-            raise ValueError("原地修改模式必须提供 backup_dir")
-        backup_session = _backup_files(stage_inputs, backup_dir, "rename2") if input_mode == "file" else _backup_directories("rename2", source_roots, backup_dir, log)
-        backup_path = str(backup_session)
+        if backup_dir:
+            backup_session = _backup_files(stage_inputs, backup_dir, "rename2") if input_mode == "file" else _backup_directories("rename2", source_roots, backup_dir, log)
+            backup_path = str(backup_session)
         target_dir = process_output_dir
 
     try:
@@ -1434,10 +1428,9 @@ def _run_json_path_v2(paths: dict[str, Any], mode: str, backup_dir: str, log: Lo
             output_dir = _ensure_safe_output_dir(str(paths.get("output_dir", "")), source_roots, "output_dir")
             output_path = output_dir
         else:
-            if not backup_dir:
-                raise ValueError("原地修改模式必须提供 backup_dir")
-            backup_session = _backup_files(source_jsons, backup_dir, "json_path")
-            backup_path = str(backup_session)
+            if backup_dir:
+                backup_session = _backup_files(source_jsons, backup_dir, "json_path")
+                backup_path = str(backup_session)
             output_path = result_output_path
 
         try:
@@ -1459,10 +1452,9 @@ def _run_json_path_v2(paths: dict[str, Any], mode: str, backup_dir: str, log: Lo
             lines = run_script(output_dir)
             output_path = output_dir
         else:
-            if not backup_dir:
-                raise ValueError("原地修改模式必须提供 backup_dir")
-            backup_session = _backup_directories("json_path", [json_dir], backup_dir, log)
-            backup_path = str(backup_session)
+            if backup_dir:
+                backup_session = _backup_directories("json_path", [json_dir], backup_dir, log)
+                backup_path = str(backup_session)
             lines = run_script(json_dir)
             output_path = json_dir
 
@@ -1617,7 +1609,6 @@ def _run_synthesize(
     target_label = str(params.get("target_label", "")).strip() or None
     max_objects = int(params.get("max_objects", 3))
     max_object_size = int(params.get("max_object_size", 350))
-    model_choice = str(params.get("model", "small")).strip()
     rotation_angle = float(params.get("rotation_angle", 30))
     grass_label = str(params.get("grass_label", "grass")).strip()
 
@@ -1687,7 +1678,7 @@ def _run_synthesize(
     cache_dir.mkdir(parents=True, exist_ok=True)
     log("info", f"缓存目录: {cache_dir}")
 
-    model_name = "u2net" if model_choice == "precise" else "u2net_small"
+    model_name = "u2net"
 
     # 处理每张背景图
     success_count = 0

@@ -1,7 +1,12 @@
 ﻿from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
+
+# 设置 U2NET_HOME 到项目本地 models/ 目录（必须在 rembg 导入前设置）
+_PROJECT_MODELS_DIR = Path(__file__).resolve().parent / "models"
+os.environ["U2NET_HOME"] = str(_PROJECT_MODELS_DIR)
 
 try:
     import webview
