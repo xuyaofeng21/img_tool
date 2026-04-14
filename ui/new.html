@@ -978,6 +978,7 @@
                 <div id="modelStatusContainer" style="padding: 12px 16px; background: var(--bg-surface); border: 1px solid var(--border-color); border-radius: var(--radius-md); margin-bottom: 20px; display: flex; align-items: center; justify-content: space-between;">
                     <span style="font-size:13px;color:var(--text-muted);">抠图模型:</span>
                     <span style="font-size:13px;color:var(--text-muted);">检测中...</span>
+                    <button class="btn" type="button" id="btnClearSynthesizeCache" style="font-size:12px;padding:4px 10px;">清除缓存</button>
                 </div>
                 <div id="synthesizeSourceStatus" style="padding: 12px 16px; background: var(--bg-surface); border: 1px solid var(--border-color); border-radius: var(--radius-md); margin-bottom: 20px;">
                     <span style="font-size:13px;color:${hintColor};">${escapeHtml(sourceHint)}</span>
@@ -1116,6 +1117,16 @@
                 }
                 triggerPreview();
             });
+        });
+
+        $("btnClearSynthesizeCache")?.addEventListener("click", async () => {
+            if (!confirm("是否确认清除缓存？")) return;
+            const res = await api.clear_cache();
+            if (res.ok) {
+                alert(`已清除 ${res.removed_count} 个缓存文件`);
+            } else {
+                alert("清除失败: " + res.error);
+            }
         });
     }
 
