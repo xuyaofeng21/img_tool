@@ -273,6 +273,7 @@
             padding: 16px;
             flex: 1;
             overflow-y: auto;
+            min-height: 0; /* 强制 flex 子元素不超出父容器高度 */
         }
         .preview-empty { text-align: center; padding: 40px; color: var(--text-placeholder); font-size: 13px; }
         .preview-list { display: flex; flex-direction: column; gap: 12px; }
@@ -504,7 +505,7 @@
                                 </button>
                             </div>
                         </div>
-                        <div style="position:relative;flex:1;display:flex;flex-direction:column;overflow:hidden;">
+                        <div style="position:relative;flex:1;display:flex;flex-direction:column;overflow:hidden;min-height:0;">
                             <div class="terminal" id="terminalLog"></div>
                         </div>
                     </div>
