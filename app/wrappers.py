@@ -2040,56 +2040,44 @@ def _place_object_on_grass(
         min_x, max_x = 0, bg_w
         min_y, max_y = bg_h // 3, bg_h
 
-    # 缩放重试逻辑：优先使用原始尺寸，依次缩小到 0.5
-    scale = 1.0
-    while scale >= 0.5:
-        obj_h_scaled = int(obj_h * scale)
-        obj_w_scaled = int(obj_w * scale)
-        object_img_scaled = cv2.resize(
-            object_img, (obj_w_scaled, obj_h_scaled), interpolation=cv2.INTER_AREA
-        )
+    # 检查有效区域是否足够放置物体
+    if max_x - obj_w < min_x or max_y - obj_h < min_y:
+        return False, None
 
-        # 检查缩放后物体是否能在有效区域放置
-        if max_x - obj_w_scaled < min_x or max_y - obj_h_scaled < min_y:
-            scale *= 0.75
-            continue
+    for attempt in range(50):
+        # 随机位置
+        x1 = random.randint(int(min_x), max(int(min_x) + 1, int(max_x - obj_w)))
+        y1 = random.randint(int(min_y), max(int(min_y) + 1, int(max_y - obj_h)))
+        x2 = x1 + obj_w
+        y2 = y1 + obj_h
+        candidate_bbox = (x1, y1, x2, y2)
 
-        for attempt in range(50):
-            # 随机位置（基于缩放后的尺寸）
-            x1 = random.randint(int(min_x), max(int(min_x) + 1, int(max_x - obj_w_scaled)))
-            y1 = random.randint(int(min_y), max(int(min_y) + 1, int(max_y - obj_h_scaled)))
-            x2 = x1 + obj_w_scaled
-            y2 = y1 + obj_h_scaled
-            candidate_bbox = (x1, y1, x2, y2)
-
-            # 检查物体整个边界框是否在 valid_grass（纯 grass，排除 obstacle）区域内
-            if valid_grass is not None and not valid_grass.is_empty:
-                candidate_poly = box(x1, y1, x2, y2)
-                if not valid_grass.contains(candidate_poly):
-                    continue
-
-            # 检查与已放置物体重叠
-            overlap = False
-            for bbox, _, _ in placed_objects:
-                ex1, ey1, ex2, ey2 = bbox
-                if not (x2 < ex1 or x1 > ex2 or y2 < ey1 or y1 > ey2):
-                    overlap = True
-                    break
-            if overlap:
+        # 检查物体整个边界框是否在 valid_grass（纯 grass，排除 obstacle）区域内
+        if valid_grass is not None and not valid_grass.is_empty:
+            candidate_poly = box(x1, y1, x2, y2)
+            if not valid_grass.contains(candidate_poly):
                 continue
 
-            # 放置物体
-            alpha = object_img_scaled[:, :, 3] / 255.0
-            roi = bg_img[y1:y2, x1:x2]
-            object_rgb = object_img_scaled[:, :, :3]
+        # 检查与已放置物体重叠
+        overlap = False
+        for bbox, _, _ in placed_objects:
+            ex1, ey1, ex2, ey2 = bbox
+            if not (x2 < ex1 or x1 > ex2 or y2 < ey1 or y1 > ey2):
+                overlap = True
+                break
+        if overlap:
+            continue
 
-            for c in range(3):
-                roi[:, :, c] = (alpha * object_rgb[:, :, c] + (1 - alpha) * roi[:, :, c]).astype(np.uint8)
+        # 放置物体
+        alpha = object_img[:, :, 3] / 255.0
+        roi = bg_img[y1:y2, x1:x2]
+        object_rgb = object_img[:, :, :3]
 
-            bg_img[y1:y2, x1:x2] = roi
-            return True, candidate_bbox
+        for c in range(3):
+            roi[:, :, c] = (alpha * object_rgb[:, :, c] + (1 - alpha) * roi[:, :, c]).astype(np.uint8)
 
-        scale *= 0.75
+        bg_img[y1:y2, x1:x2] = roi
+        return True, candidate_bbox
 
     return False, None
 
