@@ -620,7 +620,7 @@
             ],
             params: [
                 { key: "target_label", label: "源标注标签", hint: "源目录带 JSON 时自动检测并填充", placeholder: "自动检测", type: "text" },
-                { key: "label", label: "合成后标注标签", hint: "输出标注名称（源图无 JSON 时必填）", placeholder: "如: 刺猬", required: true, type: "text" },
+                { key: "label", label: "合成后标注标签", hint: "输出标注名称（源图无 JSON 时必填）", type: "select", options: [{value:"obstacle",label:"obstacle"},{value:"animal",label:"animal"}], value: "obstacle" },
                 { key: "max_objects", label: "放置数量", hint: "每张背景图放置物体数量", placeholder: "3", type: "number", step: "1", min: "1", max: "10", default: 3 },
                 { key: "max_object_size", label: "物体最大尺寸", hint: "物体最大边长(像素)", placeholder: "350", type: "number", step: "10", min: "50", max: "800", default: 350 },
                 { key: "rotation_angle", label: "最大旋转角度", hint: "随机旋转范围", placeholder: "30", type: "number", step: "5", min: "0", max: "90", default: 30 },
@@ -1045,12 +1045,26 @@
                                 ts.sourceAnalysis?.mode === "all_with_json"
                             )
                         );
-                        html.push(`
-                            <div class="form-group" style="flex:1; min-width:0;">
-                                <div class="label-row"><label>${escapeHtml(p.label)}</label><span class="hint">${escapeHtml(p.hint)}</span></div>
-                                <input type="${p.type}" data-kind="param" data-key="${escapeAttr(p.key)}" placeholder="${escapeAttr(p.placeholder || '')}" value="${escapeAttr(String(val))}" ${p.step ? `step="${escapeAttr(p.step)}"` : ''} ${p.min !== undefined ? `min="${p.min}"` : ''} ${p.max !== undefined ? `max="${p.max}"` : ''} ${disableParam ? 'disabled' : ''}>
-                            </div>
-                        `);
+                        if (p.type === "select") {
+                            const opts = p.options.map(opt =>
+                                `<option value="${escapeAttr(opt.value)}" ${val === opt.value ? "selected" : ""}>${escapeHtml(opt.label)}</option>`
+                            ).join("");
+                            html.push(`
+                                <div class="form-group" style="flex:1; min-width:0;">
+                                    <div class="label-row"><label>${escapeHtml(p.label)}</label><span class="hint">${escapeHtml(p.hint)}</span></div>
+                                    <select data-kind="param" data-key="${escapeAttr(p.key)}" ${disableParam ? "disabled" : ""}>
+                                        ${opts}
+                                    </select>
+                                </div>
+                            `);
+                        } else {
+                            html.push(`
+                                <div class="form-group" style="flex:1; min-width:0;">
+                                    <div class="label-row"><label>${escapeHtml(p.label)}</label><span class="hint">${escapeHtml(p.hint)}</span></div>
+                                    <input type="${p.type}" data-kind="param" data-key="${escapeAttr(p.key)}" placeholder="${escapeAttr(p.placeholder || '')}" value="${escapeAttr(String(val))}" ${p.step ? `step="${escapeAttr(p.step)}"` : ''} ${p.min !== undefined ? `min="${p.min}"` : ''} ${p.max !== undefined ? `max="${p.max}"` : ''} ${disableParam ? 'disabled' : ''}>
+                                </div>
+                            `);
+                        }
                     });
                     html.push(`</div>`);
                 }
@@ -1090,6 +1104,17 @@
                 else s.backup_dir = e.target.value;
                 if (state.activeTask === "synthesize" && kind === "path" && k === "source_folder") {
                     inspectSynthesizeSource(true);
+                }
+                triggerPreview();
+            });
+        });
+
+        document.querySelectorAll('select[data-kind]').forEach(el => {
+            el.addEventListener('change', e => {
+                const k = e.target.dataset.key, kind = e.target.dataset.kind, s = state.formData[state.activeTask];
+                if (kind === 'param') s.params[k] = e.target.value;
+                if (state.activeTask === "synthesize" && kind === 'param' && k === "label") {
+                    // label change may affect synthesis output
                 }
                 triggerPreview();
             });
@@ -1155,6 +1180,7 @@
         const s = state.formData[state.activeTask];
         document.querySelectorAll('input[data-kind="path"]').forEach(i => s.paths[i.dataset.key] = i.value);
         document.querySelectorAll('input[data-kind="param"]').forEach(i => s.params[i.dataset.key] = i.value);
+        document.querySelectorAll('select[data-kind="param"]').forEach(i => s.params[i.dataset.key] = i.value);
         const b = document.querySelector('input[data-kind="backup"]'); if(b) s.backup_dir = b.value;
     }
 
