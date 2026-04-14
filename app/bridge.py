@@ -2,7 +2,10 @@
 
 import os
 import platform
+import shutil
 import subprocess
+import sys
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -17,7 +20,14 @@ from .wrappers import inspect_synthesize_source_info, preview_path_info
 
 
 def _project_models_dir() -> Path:
-    """Get project-local models directory (./models/)."""
+    """Get models directory.
+
+    In frozen (packaged) exe: use <exe_dir>/_internal/models/.
+    In development: use project-local ./models/ relative to this file.
+    """
+    if getattr(sys, "frozen", False) and hasattr(sys, "executable"):
+        # sys.executable points to ImgToolbox.exe; _internal is alongside it
+        return Path(sys.executable).parent / "_internal" / "models"
     return Path(__file__).resolve().parent.parent / "models"
 
 
@@ -31,6 +41,12 @@ def _resolve_u2net_home() -> Path:
 def _get_all_model_dirs() -> list[tuple[str, Path]]:
     """Get all possible model directories to search for u2net models."""
     dirs: list[tuple[str, Path]] = []
+
+    # sys.executable parent/_internal/models (bundled in frozen exe, highest priority)
+    if getattr(sys, "frozen", False) and hasattr(sys, "executable"):
+        meipass_models = Path(sys.executable).parent / "_internal" / "models"
+        if meipass_models not in [d[1] for d in dirs]:
+            dirs.append(("打包models(_internal)", meipass_models))
 
     # Project-local models directory (highest priority for display)
     local_models = _project_models_dir()
@@ -318,6 +334,30 @@ class ApiBridge:
                 "models_dir": str(models_dir),
                 "status": status,
             }
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def clear_cache(self) -> dict[str, Any]:
+        """清除合成缓存目录"""
+        try:
+            if getattr(sys, "frozen", False) and hasattr(sys, "executable"):
+                cache_dir = Path(sys.executable).parent / "cache" / "img_tool_synthesize_cache"
+            else:
+                cache_dir = Path(tempfile.gettempdir()) / "img_tool_synthesize_cache"
+
+            removed_count = 0
+            if cache_dir.exists():
+                for item in cache_dir.iterdir():
+                    try:
+                        if item.is_file():
+                            item.unlink()
+                            removed_count += 1
+                        elif item.is_dir():
+                            shutil.rmtree(item)
+                            removed_count += 1
+                    except Exception:
+                        pass
+            return {"ok": True, "removed_count": removed_count}
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
 
