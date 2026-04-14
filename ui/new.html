@@ -1192,11 +1192,15 @@
 
         $("btnClearSynthesizeCache")?.addEventListener("click", async () => {
             if (!confirm("是否确认清除缓存？")) return;
-            const res = await api.clear_cache();
-            if (res.ok) {
-                alert(`已清除 ${res.removed_count} 个缓存文件`);
-            } else {
-                alert("清除失败: " + res.error);
+            try {
+                const res = await api.clear_cache();
+                if (res?.ok) {
+                    alert(`已清除 ${res.removed_count} 个缓存文件`);
+                } else {
+                    alert("清除失败: " + (res?.error || "未知错误"));
+                }
+            } catch(e) {
+                alert("清除缓存失败: " + e?.message);
             }
         });
     }
