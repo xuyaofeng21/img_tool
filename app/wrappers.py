@@ -1994,26 +1994,24 @@ def _place_object_on_grass(
     obj_h, obj_w = object_img.shape[:2]
     bg_h, bg_w = bg_img.shape[:2]
 
+    # 没有 grass 标签，或者 grass union 计算失败，直接跳过不放置
+    if not grass_polygons:
+        return False, None
+
     # 计算有效放置区域，并提前计算 grass union 供后续检查使用
     union_grass = None
-    if grass_polygons:
-        # 用 grass 的边界框
-        try:
-            union_grass = unary_union(grass_polygons)
-            bounds = union_grass.bounds
-            min_x, min_y, max_x, max_y = bounds
-            # 扩大范围到图像边界
-            min_x = max(0, min_x)
-            min_y = max(0, min_y)
-            max_x = min(bg_w, max_x)
-            max_y = min(bg_h, max_y)
-        except Exception:
-            min_x, max_x = 0, bg_w
-            min_y, max_y = bg_h // 3, bg_h
-    else:
-        # 回退到下半部分
-        min_x, max_x = 0, bg_w
-        min_y, max_y = bg_h // 3, bg_h
+    try:
+        union_grass = unary_union(grass_polygons)
+        bounds = union_grass.bounds
+        min_x, min_y, max_x, max_y = bounds
+        # 扩大范围到图像边界
+        min_x = max(0, min_x)
+        min_y = max(0, min_y)
+        max_x = min(bg_w, max_x)
+        max_y = min(bg_h, max_y)
+    except Exception:
+        # grass 计算失败，跳过不放置
+        return False, None
 
     # 检查有效区域是否足够放置物体
     if max_x - obj_w < min_x or max_y - obj_h < min_y:
