@@ -1347,9 +1347,7 @@
 
             if (ok && mode === "all_with_json") {
                 task.params.target_label = detectedLabel;
-                if (!String(task.params.label || "").trim()) {
-                    task.params.label = detectedLabel || "";
-                }
+                task.params.label = detectedLabel;
                 task.sourceAnalysis = {
                     mode,
                     ok: true,
@@ -1378,7 +1376,7 @@
             const targetInput = document.querySelector('input[data-kind="param"][data-key="target_label"]');
             if (targetInput) targetInput.value = task.params.target_label || "";
             const labelInput = document.querySelector('input[data-kind="param"][data-key="label"]');
-            if (labelInput && task.params.label) labelInput.value = task.params.label;
+            if (labelInput) labelInput.value = task.params.label || "";
         } catch (e) {
             if (token !== state.synthesizeInspectToken) return;
             task.sourceAnalysis = {

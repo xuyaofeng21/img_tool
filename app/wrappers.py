@@ -1673,8 +1673,11 @@ def _run_synthesize(
 
     log("info", f"源物体: {len(source_files)} 张, 背景图: {len(bg_json_pairs)} 张")
 
-    # 缓存目录
-    cache_dir = Path(tempfile.gettempdir()) / "img_tool_synthesize_cache"
+    # 缓存目录：打包态放在 exe 同级，否则用系统临时目录
+    if getattr(sys, "frozen", False) and hasattr(sys, "executable"):
+        cache_dir = Path(sys.executable).parent / "cache" / "img_tool_synthesize_cache"
+    else:
+        cache_dir = Path(tempfile.gettempdir()) / "img_tool_synthesize_cache"
     cache_dir.mkdir(parents=True, exist_ok=True)
     log("info", f"缓存目录: {cache_dir}")
 
@@ -1991,7 +1994,8 @@ def _place_object_on_grass(
     obj_h, obj_w = object_img.shape[:2]
     bg_h, bg_w = bg_img.shape[:2]
 
-    # 计算有效放置区域
+    # 计算有效放置区域，并提前计算 grass union 供后续检查使用
+    union_grass = None
     if grass_polygons:
         # 用 grass 的边界框
         try:
@@ -2031,6 +2035,16 @@ def _place_object_on_grass(
             candidate_poly = box(x1, y1, x2, y2)
             is_fully_in_obstacle = any(obs.contains(candidate_poly) for obs in obstacles_polygons)
             if is_fully_in_obstacle:
+                continue
+
+        # 检查物体底部中心是否在 grass 区域内
+        if grass_polygons:
+            # 物体底部中心点（落在 grass 上）
+            bottom_center_x = x1 + obj_w / 2
+            bottom_center_y = y2  # 物体底部 y 坐标
+            # 用物体底部中心点检测是否在 grass 内
+            ground_point = box(bottom_center_x - 1, bottom_center_y - 1, bottom_center_x + 1, bottom_center_y)
+            if not union_grass.contains(ground_point) and not union_grass.intersects(ground_point):
                 continue
 
         # 检查与已放置物体重叠
