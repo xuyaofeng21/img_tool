@@ -1683,6 +1683,10 @@ def _run_synthesize(
 
     model_name = "u2net"
 
+    # 均衡轮转池：打乱原图列表，均衡分配到各背景图
+    source_pool = random.sample(source_files, len(source_files))
+    source_index = 0
+
     # 处理每张背景图
     success_count = 0
     fail_count = 0
@@ -1690,9 +1694,19 @@ def _run_synthesize(
     for idx, (bg_path, json_path) in enumerate(bg_json_pairs, 1):
         _require_not_cancelled()
         try:
+            # 从轮转池中选取原图
+            num_objects = random.randint(1, max_objects)
+            selected_sources = []
+            for _ in range(num_objects):
+                if source_index >= len(source_pool):
+                    random.shuffle(source_pool)
+                    source_index = 0
+                selected_sources.append(source_pool[source_index])
+                source_index += 1
+
             result = _process_single_synthesize(
-                bg_path, json_path, source_files, output_folder,
-                label, target_label, max_objects, max_object_size, model_name,
+                bg_path, json_path, selected_sources, output_folder,
+                label, target_label, max_object_size, model_name,
                 rotation_angle, grass_label, cache_dir, log
             )
             if result:
@@ -1722,11 +1736,10 @@ def _run_synthesize(
 def _process_single_synthesize(
     bg_path: Path,
     json_path: Path,
-    source_files: list[Path],
+    selected_sources: list[Path],
     output_folder: Path,
     label: str,
     target_label: str | None,
-    max_objects: int,
     max_object_size: int,
     model_name: str,
     rotation_angle: float,
@@ -1771,10 +1784,6 @@ def _process_single_synthesize(
             pass
 
     bg_h, bg_w = bg_img.shape[:2]
-
-    # 选择放置物体
-    num_objects = random.randint(1, max_objects)
-    selected_sources = random.choices(source_files, k=num_objects)
 
     placed_objects = []
 
