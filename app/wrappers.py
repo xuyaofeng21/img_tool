@@ -2037,14 +2037,11 @@ def _place_object_on_grass(
             if is_fully_in_obstacle:
                 continue
 
-        # 检查物体底部中心是否在 grass 区域内
-        if grass_polygons:
-            # 物体底部中心点（落在 grass 上）
-            bottom_center_x = x1 + obj_w / 2
-            bottom_center_y = y2  # 物体底部 y 坐标
-            # 用物体底部中心点检测是否在 grass 内
-            ground_point = box(bottom_center_x - 1, bottom_center_y - 1, bottom_center_x + 1, bottom_center_y)
-            if not union_grass.contains(ground_point) and not union_grass.intersects(ground_point):
+        # 检查物体整个边界框是否在 grass 区域内
+        if grass_polygons and union_grass is not None:
+            candidate_poly = box(x1, y1, x2, y2)
+            # 必须物体完全在 grass 内（within），或者至少完全被 grass 覆盖
+            if not union_grass.contains(candidate_poly):
                 continue
 
         # 检查与已放置物体重叠
