@@ -1998,11 +1998,29 @@ def _place_object_on_grass(
     if not grass_polygons:
         return False, None
 
-    # 计算有效放置区域，并提前计算 grass union 供后续检查使用
-    union_grass = None
+    # 计算 grass union 供后续检查使用
     try:
         union_grass = unary_union(grass_polygons)
-        bounds = union_grass.bounds
+    except Exception:
+        # grass 计算失败，跳过不放置
+        return False, None
+
+    # 计算有效区域：从 grass 中排除 obstacle，得到纯 grass 区域
+    valid_grass = union_grass
+    if obstacles_polygons:
+        try:
+            union_obstacles = unary_union(obstacles_polygons)
+            valid_grass = union_grass.difference(union_obstacles)
+            if valid_grass.is_empty:
+                # obstacle 占满了整个 grass，无法放置
+                return False, None
+        except Exception:
+            # obstacle 计算失败，跳过不放置
+            return False, None
+
+    # 用 valid_grass 的边界框作为随机放置范围
+    try:
+        bounds = valid_grass.bounds
         min_x, min_y, max_x, max_y = bounds
         # 扩大范围到图像边界
         min_x = max(0, min_x)
@@ -2010,14 +2028,13 @@ def _place_object_on_grass(
         max_x = min(bg_w, max_x)
         max_y = min(bg_h, max_y)
     except Exception:
-        # grass 计算失败，跳过不放置
-        return False, None
-
-    # 检查有效区域是否足够放置物体
-    if max_x - obj_w < min_x or max_y - obj_h < min_y:
-        # 区域太小，回退到整图
         min_x, max_x = 0, bg_w
-        min_y, max_y = 0, bg_h
+        min_y, max_y = bg_h // 3, bg_h
+
+    # 检查有效区域是否足够放置物体（基于 valid_grass）
+    if max_x - obj_w < min_x or max_y - obj_h < min_y:
+        # valid_grass 区域太小，跳过不放置
+        return False, None
 
     max_attempts = 50
     for attempt in range(max_attempts):
@@ -2028,18 +2045,10 @@ def _place_object_on_grass(
         y2 = y1 + obj_h
         candidate_bbox = (x1, y1, x2, y2)
 
-        # 检查是否完全在 obstacles 内
-        if obstacles_polygons:
+        # 检查物体整个边界框是否在 valid_grass（纯 grass，排除 obstacle）区域内
+        if valid_grass is not None and not valid_grass.is_empty:
             candidate_poly = box(x1, y1, x2, y2)
-            is_fully_in_obstacle = any(obs.contains(candidate_poly) for obs in obstacles_polygons)
-            if is_fully_in_obstacle:
-                continue
-
-        # 检查物体整个边界框是否在 grass 区域内
-        if grass_polygons and union_grass is not None:
-            candidate_poly = box(x1, y1, x2, y2)
-            # 必须物体完全在 grass 内（within），或者至少完全被 grass 覆盖
-            if not union_grass.contains(candidate_poly):
+            if not valid_grass.contains(candidate_poly):
                 continue
 
         # 检查与已放置物体重叠
