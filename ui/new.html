@@ -899,8 +899,19 @@
     }
 
     function renderMode() {
+        const isSynthesize = state.activeTask === "synthesize";
         document.querySelectorAll(".mode-card").forEach(el => {
             const input = el.querySelector('input');
+            if (input) {
+                // 同步checked状态
+                input.checked = input.value === state.mode;
+                // 合成标注时禁用原地修改
+                if (input.value === "in_place") {
+                    input.disabled = isSynthesize;
+                    el.style.opacity = isSynthesize ? "0.5" : "1";
+                    el.style.pointerEvents = isSynthesize ? "none" : "";
+                }
+            }
             el.classList.toggle("active", input && input.value === state.mode);
         });
     }
@@ -1050,6 +1061,16 @@
         bindFormEvents();
         triggerPreview();
         if (state.activeTask === "synthesize") {
+            // 合成标注不支持原地修改，强制切为安全复制
+            if (state.mode === "in_place") {
+                state.mode = "safe_copy";
+                // 同步radio的checked状态
+                const safeCopyRadio = document.querySelector('input[name="mode"][value="safe_copy"]');
+                const inPlaceRadio = document.querySelector('input[name="mode"][value="in_place"]');
+                if (safeCopyRadio) safeCopyRadio.checked = true;
+                if (inPlaceRadio) inPlaceRadio.checked = false;
+                renderMode();
+            }
             updateSynthesizeSourceStatusUI();
             applySynthesizeParamStateUI();
             requestAnimationFrame(() => requestAnimationFrame(() => {
