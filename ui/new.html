@@ -217,6 +217,19 @@
             outline: none; border-color: var(--border-focus); box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
         }
         input:disabled { background: var(--bg-hover); color: var(--text-muted); cursor: not-allowed;}
+        .param-select {
+            flex: 1; height: 34px; padding: 0 12px; font-size: 13px; border: 1px solid var(--border-color);
+            border-radius: var(--radius-md); background: var(--bg-surface); color: var(--text-main); transition: all 0.2s;
+            appearance: none; -webkit-appearance: none; cursor: pointer;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23888' d='M2 4l4 4 4-4'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 12px center;
+            padding-right: 32px;
+        }
+        .param-select:focus {
+            outline: none; border-color: var(--border-focus); box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
+        }
+        .param-select:disabled { background: var(--bg-hover); color: var(--text-muted); cursor: not-allowed; }
 
         /* 按钮 */
         .btn {
@@ -620,7 +633,7 @@
             ],
             params: [
                 { key: "target_label", label: "源标注标签", hint: "源目录带 JSON 时自动检测并填充", placeholder: "自动检测", type: "text" },
-                { key: "label", label: "合成后标注标签", hint: "输出标注名称（源图无 JSON 时必填）", placeholder: "选择或输入标签", type: "text", datalist: "labelDatalist" },
+                { key: "label", label: "合成后标注标签", hint: "输出标注名称（源图无 JSON 时必填）", type: "select", options: [{value:"obstacle",label:"obstacle"},{value:"animal",label:"animal"}], value: "obstacle" },
                 { key: "max_objects", label: "放置数量", hint: "每张背景图放置物体数量", placeholder: "3", type: "number", step: "1", min: "1", max: "10", default: 3 },
                 { key: "max_object_size", label: "物体最大尺寸", hint: "物体最大边长(像素)", placeholder: "350", type: "number", step: "10", min: "50", max: "800", default: 350 },
                 { key: "rotation_angle", label: "最大旋转角度", hint: "随机旋转范围", placeholder: "30", type: "number", step: "5", min: "0", max: "90", default: 30 },
@@ -1045,12 +1058,17 @@
                                 ts.sourceAnalysis?.mode === "all_with_json"
                             )
                         );
-                        if (p.type === "text" && p.datalist) {
-                            // 输入框 + datalist 下拉建议
+                        if (p.type === "select") {
+                            const val = ts.params[p.key] ?? p.value ?? "";
+                            const opts = p.options.map(opt =>
+                                `<option value="${escapeAttr(opt.value)}" ${val === opt.value ? "selected" : ""}>${escapeHtml(opt.label)}</option>`
+                            ).join("");
                             html.push(`
                                 <div class="form-group" style="flex:1; min-width:0;">
                                     <div class="label-row"><label>${escapeHtml(p.label)}</label><span class="hint">${escapeHtml(p.hint)}</span></div>
-                                    <input type="text" data-kind="param" data-key="${escapeAttr(p.key)}" placeholder="${escapeAttr(p.placeholder || '')}" value="${escapeAttr(String(val))}" list="${p.datalist}" ${disableParam ? 'disabled' : ''}>
+                                    <select data-kind="param" data-key="${escapeAttr(p.key)}" class="param-select" ${disableParam ? "disabled" : ""}>
+                                        ${opts}
+                                    </select>
                                 </div>
                             `);
                         } else if (p.type === "text" || p.type === "number") {
@@ -1068,13 +1086,6 @@
         }
 
         $("formContainer").innerHTML = html.join("");
-        // 下拉建议 datalist（供 label 等字段使用）
-        if (!$("labelDatalist")) {
-            const dl = document.createElement("datalist");
-            dl.id = "labelDatalist";
-            dl.innerHTML = `<option value="obstacle"><option value="animal">`;
-            document.body.appendChild(dl);
-        }
         bindFormEvents();
         triggerPreview();
         if (state.activeTask === "synthesize") {
@@ -1108,6 +1119,14 @@
                 if (state.activeTask === "synthesize" && kind === "path" && k === "source_folder") {
                     inspectSynthesizeSource(true);
                 }
+                triggerPreview();
+            });
+        });
+
+        document.querySelectorAll('select[data-kind]').forEach(el => {
+            el.addEventListener('change', e => {
+                const k = e.target.dataset.key, kind = e.target.dataset.kind, s = state.formData[state.activeTask];
+                if (kind === 'param') s.params[k] = e.target.value;
                 triggerPreview();
             });
         });
@@ -1172,6 +1191,7 @@
         const s = state.formData[state.activeTask];
         document.querySelectorAll('input[data-kind="path"]').forEach(i => s.paths[i.dataset.key] = i.value);
         document.querySelectorAll('input[data-kind="param"]').forEach(i => s.params[i.dataset.key] = i.value);
+        document.querySelectorAll('select[data-kind="param"]').forEach(i => s.params[i.dataset.key] = i.value);
         const b = document.querySelector('input[data-kind="backup"]'); if(b) s.backup_dir = b.value;
     }
 
