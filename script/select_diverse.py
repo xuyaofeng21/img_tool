@@ -31,7 +31,7 @@ def select_diverse_images(input_dir, output_dir, select_ratio=0.1, hamming_thres
     从输入目录中选择场景多样的图片
 
     Args:
-        input_dir: 包含所有 PNG 图片的目录
+        input_dir: 包含所有图片的目录
         output_dir: 精选图片的输出目录
         select_ratio: 精选比例（如 0.1 表示 10%）
         hamming_thresh: pHash 汉明距离阈值，超过此值才视为不同场景
@@ -40,9 +40,10 @@ def select_diverse_images(input_dir, output_dir, select_ratio=0.1, hamming_thres
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # 获取所有 PNG 文件并按文件名排序（文件名即时间戳）
-    png_files = sorted([f for f in input_dir.glob("*.png")])
-    total = len(png_files)
+    # 获取所有图片文件并按文件名排序（文件名即时间戳）
+    IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif", ".gif", ".webp"}
+    image_files = sorted([f for f in input_dir.iterdir() if f.is_file() and f.suffix.lower() in IMAGE_EXTENSIONS])
+    total = len(image_files)
     print(f"共找到 {total} 张图片")
 
     if total == 0:
@@ -56,14 +57,14 @@ def select_diverse_images(input_dir, output_dir, select_ratio=0.1, hamming_thres
     print("Step 1: 计算所有图片的感知哈希...")
     hash_cache = {}
     hashes = []
-    for i, f in enumerate(png_files):
+    for i, f in enumerate(image_files):
         h = compute_phash(f, hash_cache)
         hashes.append(h)
         if (i + 1) % 500 == 0:
             print(f"  已处理 {i + 1}/{total}")
 
     # 过滤掉计算失败的图片
-    valid_files = [f for f, h in zip(png_files, hashes) if h is not None]
+    valid_files = [f for f, h in zip(image_files, hashes) if h is not None]
     valid_hashes = [h for h in hashes if h is not None]
     print(f"成功计算 {len(valid_hashes)} 个哈希")
 
@@ -145,7 +146,7 @@ def select_diverse_images(input_dir, output_dir, select_ratio=0.1, hamming_thres
 
 
 def main():
-    input_dir = input("输入目录（包含PNG图片）: ").strip().strip('"').strip("'")
+    input_dir = input("输入目录（包含图片）: ").strip().strip('"').strip("'")
     output_dir = input("输出目录（精选图片保存位置）: ").strip().strip('"').strip("'")
     ratio_str = input("精选比例（默认0.1，即10%%）: ").strip()
     ratio = float(ratio_str) if ratio_str else 0.1

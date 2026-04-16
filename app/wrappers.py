@@ -28,7 +28,6 @@ LogFn = Callable[[str, str], None]
 
 _SCRIPT_MODULES: dict[str, Any] = {}
 _IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif", ".gif", ".webp"}
-_PNG_EXTENSIONS = {".png"}
 
 
 def _check_cancelled() -> bool:
@@ -656,17 +655,17 @@ def _select_diverse_with_target(
     hamming_thresh: int,
     log: LogFn,
 ) -> tuple[int, int, int]:
-    png_files = sorted([p for p in input_dir.iterdir() if p.is_file() and p.suffix.lower() == ".png"])
-    total = len(png_files)
+    image_files = sorted([p for p in input_dir.iterdir() if p.is_file() and p.suffix.lower() in _IMAGE_EXTENSIONS])
+    total = len(image_files)
     if total == 0:
-        log("warn", "没有找到 PNG 图片！")
+        log("warn", "没有找到图片文件！")
         return 0, 0, 0
 
     target_count = max(1, min(target_count, total))
     log("info", f"按张数优先执行，目标精选 {target_count} 张")
 
     hashes: list[tuple[Path, Any] | None] = []
-    for i, file_path in enumerate(png_files, 1):
+    for i, file_path in enumerate(image_files, 1):
         _require_not_cancelled()
         try:
             hashes.append((file_path, _compute_phash(file_path)))
@@ -1051,24 +1050,26 @@ def _run_select_diverse(
         source_files = [
             p
             for p in _collect_existing_paths(paths, ["input_file", "source_file", "input_path", "file_path", "input_dir", "source_dir"])
-            if p.is_file() and p.suffix.lower() in _PNG_EXTENSIONS
+            if p.is_file() and p.suffix.lower() in _IMAGE_EXTENSIONS
         ]
         if not source_files:
             source_dir = _collect_first_existing_dir(paths, ["input_dir", "source_dir", "input_path"])
             if source_dir is not None:
-                source_files = [p for p in sorted(source_dir.iterdir(), key=lambda p: str(p)) if p.is_file() and p.suffix.lower() in _PNG_EXTENSIONS]
+                source_files = [p for p in sorted(source_dir.iterdir(), key=lambda p: str(p)) if p.is_file() and p.suffix.lower() in _IMAGE_EXTENSIONS]
         if not source_files:
-            raise ValueError("文件模式下必须提供有效的 PNG 文件")
+            raise ValueError("文件模式下必须提供有效的图片文件")
         working_input, staged_to_original = _stage_files_with_ascii_names(source_files, "select_diverse")
         source_roots = sorted({p.parent for p in source_files}, key=lambda p: str(p))
         inplace_output_path = source_files[0].parent
     else:
         source_path = _collect_first_existing_dir(paths, ["input_dir", "source_dir", "input_path"])
         if source_path is None:
-            raise ValueError("输入目录无效")
-        source_files = [p for p in sorted(source_path.iterdir(), key=lambda p: str(p)) if p.is_file() and p.suffix.lower() in _PNG_EXTENSIONS]
+            raise ValueError(f"输入目录无效：未找到有效的目录路径（已尝试 input_dir/source_dir/input_path）")
+        all_files = [p for p in sorted(source_path.iterdir(), key=lambda p: str(p)) if p.is_file()]
+        log("debug", f"[select_diverse] source_path={source_path}, total_files={len(all_files)}, extensions={set(p.suffix.lower() for p in all_files)}")
+        source_files = [p for p in all_files if p.suffix.lower() in _IMAGE_EXTENSIONS]
         if not source_files:
-            raise ValueError("输入目录无效")
+            raise ValueError(f"输入目录无效：目录 '{source_path}' 中未找到图片文件（可用格式：{', '.join(sorted(_IMAGE_EXTENSIONS))}）")
         working_input, staged_to_original = _stage_files_with_ascii_names(source_files, "select_diverse")
         source_roots = [source_path]
         inplace_output_path = source_path
@@ -1083,7 +1084,12 @@ def _run_select_diverse(
             backup_session = _backup_files(source_files, backup_dir, "select_diverse") if input_mode == "file" else _backup_directories("select_diverse", [inplace_output_path], backup_dir, log)
             backup_path = str(backup_session)
         process_output_dir = Path(tempfile.mkdtemp(prefix="select_diverse_out_"))
-        result_output_path = inplace_output_path
+        user_output_dir = paths.get("output_dir")
+        if user_output_dir:
+            result_output_path = Path(user_output_dir)
+        else:
+            result_output_path = inplace_output_path
+            log("warn", "未指定输出目录，已将选中图片移回源目录（兼容模式）")
 
     try:
         _require_not_cancelled()
@@ -1121,7 +1127,17 @@ def _run_select_diverse(
                 skipped = 0
 
         if mode == "in_place":
-            _restore_outputs_back(process_output_dir, staged_to_original)
+            result_output_path.mkdir(parents=True, exist_ok=True)
+            for output_file in sorted(
+                [p for p in process_output_dir.iterdir() if p.is_file()], key=lambda p: str(p)
+            ):
+                original_path = staged_to_original.get(output_file.name)
+                if original_path is None:
+                    continue
+                dest = result_output_path / original_path.name
+                shutil.move(str(output_file), str(dest))
+                if dest != original_path and original_path.exists():
+                    original_path.unlink()
         else:
             _restore_outputs_to_dir(process_output_dir, staged_to_original, result_output_path)
     finally:
@@ -1140,10 +1156,10 @@ def _run_select_diverse(
 
 
 def _select_diverse_compat_fallback(input_dir: Path, output_dir: Path, select_ratio: float, log: LogFn) -> int:
-    files = sorted([f for f in input_dir.glob("*.png") if f.is_file()])
+    files = sorted([f for f in input_dir.iterdir() if f.is_file() and f.suffix.lower() in _IMAGE_EXTENSIONS])
     total = len(files)
     if total == 0:
-        log("warn", "未找到 PNG 图片，兼容回退未执行复制。")
+        log("warn", "未找到图片文件，兼容回退未执行复制。")
         return 0
 
     target = max(1, int(total * select_ratio))
@@ -1987,6 +2003,7 @@ def _place_object_on_grass(
     log: LogFn,
 ) -> tuple[bool, tuple | None]:
     """将物体放置在草地上"""
+    from shapely.geometry import Point
 
     # 确保物体图片是 4 通道
     if len(object_img.shape) == 2:
@@ -2045,18 +2062,19 @@ def _place_object_on_grass(
         return False, None
 
     for attempt in range(50):
-        # 随机位置
+        # 在 valid_grass 范围内 rejection sampling 生成随机位置
         x1 = random.randint(int(min_x), max(int(min_x) + 1, int(max_x - obj_w)))
         y1 = random.randint(int(min_y), max(int(min_y) + 1, int(max_y - obj_h)))
         x2 = x1 + obj_w
         y2 = y1 + obj_h
-        candidate_bbox = (x1, y1, x2, y2)
 
-        # 检查物体整个边界框是否在 valid_grass（纯 grass，排除 obstacle）区域内
+        # 用四角点检查物体是否完全在 valid_grass 内（处理凹形/空洞）
         if valid_grass is not None and not valid_grass.is_empty:
-            candidate_poly = box(x1, y1, x2, y2)
-            if not valid_grass.contains(candidate_poly):
+            corners = [Point(x1, y1), Point(x1, y2), Point(x2, y1), Point(x2, y2)]
+            if not all(valid_grass.contains(c) for c in corners):
                 continue
+
+        candidate_bbox = (x1, y1, x2, y2)
 
         # 检查与已放置物体重叠
         overlap = False

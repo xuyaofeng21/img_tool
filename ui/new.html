@@ -330,8 +330,9 @@
             flex: 1; overflow-y: auto;
             font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
             font-size: 12px; line-height: 1.6; border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+            user-select: text; -webkit-user-select: text;
         }
-        .log-line { margin-bottom: 4px; word-break: break-all; }
+        .log-line { margin-bottom: 4px; word-break: break-all; user-select: text; -webkit-user-select: text; cursor: text; }
         .log-info { color: #94a3b8; }
         .log-warn { color: #fbbf24; }
         .log-error { color: #f87171; }
@@ -610,10 +611,10 @@
             supportsInputMode: true,
             paths: [
                 { key: "input_dir", label: "输入目录", hint: "待筛选的图片目录", placeholder: "选择文件夹...", required: true },
-                { key: "output_dir", label: "输出目录", hint: "筛选结果存放位置", placeholder: "选择文件夹...", required: true, safeOnly: true }
+                { key: "output_dir", label: "输出目录", hint: "筛选结果存放位置（in_place模式下为移动目标）", placeholder: "选择文件夹...", required: true, safeOnly: true }
             ],
             params: [
-                { key: "target_count", label: "保留数量", hint: "指定保留的图片张数 (优先)", placeholder: "选填", type: "number", step: "1", min: "1" },
+                { key: "target_count", label: "挑选数量", hint: "指定挑选的图片张数 (优先)", placeholder: "选填", type: "number", step: "1", min: "1" },
                 { key: "select_ratio", label: "保留比例", hint: "按总数的比例保留 (0.01 - 1.0)", placeholder: "0.1", type: "number", step: "0.01", min: "0.01", max: "1", default: 0.1 },
                 { key: "hamming_thresh", label: "相似度阈值", hint: "汉明距离 (越小要求越严格)", placeholder: "10", required: true, type: "number", step: "1", min: "0", default: 10 }
             ]
@@ -927,17 +928,17 @@
     }
 
     function renderMode() {
-        const isSynthesize = state.activeTask === "synthesize";
+        const isSafeCopyDisabled = state.activeTask === "reorder_labels";
         document.querySelectorAll(".mode-card").forEach(el => {
             const input = el.querySelector('input');
             if (input) {
                 // 同步checked状态
                 input.checked = input.value === state.mode;
-                // 合成标注时禁用原地修改
-                if (input.value === "in_place") {
-                    input.disabled = isSynthesize;
-                    el.style.opacity = isSynthesize ? "0.5" : "1";
-                    el.style.pointerEvents = isSynthesize ? "none" : "";
+                // 标签排序时禁用另存输出
+                if (input.value === "safe_copy") {
+                    input.disabled = isSafeCopyDisabled;
+                    el.style.opacity = isSafeCopyDisabled ? "0.5" : "1";
+                    el.style.pointerEvents = isSafeCopyDisabled ? "none" : "";
                 }
             }
             el.classList.toggle("active", input && input.value === state.mode);
@@ -976,7 +977,7 @@
         }
 
         t.paths.forEach(p => {
-            if (p.safeOnly && state.mode === "in_place") return;
+            if (p.safeOnly && state.mode === "in_place" && !(state.activeTask === "select_diverse" && p.key === "output_dir")) return;
             const inputMode = ts.input_mode || 'folder';
             const isFilesMode = t.supportsInputMode && inputMode === 'file' && p.key === 'input_dir';
             const actionText = isFilesMode ? "选择文件" : "选择目录";
@@ -1108,7 +1109,17 @@
         }
         bindFormEvents();
         triggerPreview();
-        if (state.activeTask === "synthesize") {
+        if (state.activeTask === "reorder_labels") {
+            // 标签排序不支持另存输出，强制切为原地修改
+            if (state.mode === "safe_copy") {
+                state.mode = "in_place";
+                const safeCopyRadio = document.querySelector('input[name="mode"][value="safe_copy"]');
+                const inPlaceRadio = document.querySelector('input[name="mode"][value="in_place"]');
+                if (safeCopyRadio) safeCopyRadio.checked = false;
+                if (inPlaceRadio) inPlaceRadio.checked = true;
+                renderMode();
+            }
+        } else if (state.activeTask === "synthesize") {
             // 合成标注不支持原地修改，强制切为安全复制
             if (state.mode === "in_place") {
                 state.mode = "safe_copy";
@@ -1724,6 +1735,7 @@
                                     state.autoOpenedTaskId = state.taskId;
                                     try { window.pywebview?.api?.open_path?.(outputPath); } catch (_) {}
                                 }
+                                triggerPreview();
                             }
                         }
                     }
