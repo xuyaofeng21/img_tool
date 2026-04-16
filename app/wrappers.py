@@ -1382,7 +1382,7 @@ def _run_rename_v2(paths: dict[str, Any], params: dict[str, Any], mode: str, bac
 
 
 def _run_json_path_v2(paths: dict[str, Any], mode: str, backup_dir: str, log: LogFn) -> dict[str, Any]:
-    script_path = _resolve_json_path_script()
+    json_module = _load_script_module("script_json_path", "更改json路径.py")
 
     input_mode, mode_warnings = _normalize_input_mode(paths.get("input_mode", "folder"))
     for warning in mode_warnings:
@@ -1394,30 +1394,9 @@ def _run_json_path_v2(paths: dict[str, Any], mode: str, backup_dir: str, log: Lo
     image_dir = image_path if image_path.is_dir() else image_path.parent
 
     def run_script(target_json_dir: Path, source_json_dir: Path | None = None) -> list[str]:
-        cmd = [sys.executable, str(script_path), str(target_json_dir), str(image_dir)]
         if source_json_dir:
-            cmd.append(str(source_json_dir))
-        env = dict(os.environ)
-        env["PYTHONIOENCODING"] = "utf-8"
-        env["PYTHONUTF8"] = "1"
-        completed = subprocess.run(
-            cmd,
-            cwd=str(_project_root()),
-            env=env,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-        )
-        merged: list[str] = []
-        merged.extend(completed.stdout.splitlines())
-        merged.extend(completed.stderr.splitlines())
-        lines = [x.rstrip() for x in merged if x.strip()]
-        _log_lines(lines, log)
-        if completed.returncode != 0:
-            tail = "\n".join(lines[-12:]) if lines else ""
-            raise RuntimeError(f"json_path 脚本执行失败，退出码 {completed.returncode}\n{tail}")
-        return lines
+            return _run_with_captured_stdout(log, json_module.update_image_paths_in_json, str(target_json_dir), str(image_dir), str(source_json_dir))
+        return _run_with_captured_stdout(log, json_module.update_image_paths_in_json, str(target_json_dir), str(image_dir))
 
     backup_path = ""
     if input_mode == "file":
