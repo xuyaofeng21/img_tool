@@ -4,7 +4,7 @@ __pycache__/
 build/
 dist/
 wheels/
-*.egg-info
+*.egg-info/
 .eggs/
 *.whl
 .pytest_cache/
@@ -25,22 +25,30 @@ venv/
 # OS
 .DS_Store
 Thumbs.db
+desktop.ini
 
-# Project-specific cache (do NOT upload)
-.cache/
+# AI / Agent 工具产物（非代码）
 .claude/
 .omx/
 .codex/
-img_tool_synthesize_cache/
+.qoder/
+.superpowers/
+
+# 缓存与模型（体积大，需单独下载）
+.cache/
 models/
+img_tool_synthesize_cache/
 
-# Logs
+# 日志
 *.log
+.server.log
+.server.pid
 
-# Test / temp data (do NOT upload)
+# 临时数据 / 本地产物
 test_data/
 *.tmp
 temp/
-reports/iteration_report.md
+reports/
 
-
+# 打包产物
+*.spec

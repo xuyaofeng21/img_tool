@@ -1335,7 +1335,12 @@ def _run_rename_v2(paths: dict[str, Any], params: dict[str, Any], mode: str, bac
         source_roots = [source_dir]
         default_output_path = source_dir
 
-    working_input, staged_to_original = _stage_files_with_ascii_names(stage_inputs, "rename2")
+    # staging 时保留原始文件名，这样 rename2.py 输出 prefix + 原始文件名 = 正确的新文件名
+    working_input = Path(tempfile.mkdtemp(prefix="rename2_working_"))
+    staged_to_original: dict[str, Path] = {}
+    for src in stage_inputs:
+        shutil.copy2(src, working_input / src.name)
+        staged_to_original[src.name] = src
     process_output_dir = Path(tempfile.mkdtemp(prefix="rename2_out_"))
 
     backup_path = ""
@@ -1360,12 +1365,22 @@ def _run_rename_v2(paths: dict[str, Any], params: dict[str, Any], mode: str, bac
                 output_name_builder=lambda original_path, _: f"{prefix}{original_path.name}",
             )
         else:
-            _restore_outputs_back(
-                process_output_dir,
-                staged_to_original,
-                prefix=prefix,
-                output_name_builder=lambda original_path, _: f"{prefix}{original_path.name}",
-            )
+            # in_place: 将处理后的文件移回原始目录，覆盖原文件
+            for output_file in sorted(
+                [p for p in process_output_dir.iterdir() if p.is_file()], key=lambda p: str(p)
+            ):
+                # 输出文件名是 prefix + 原始文件名，如 "1cat.png"，去掉前缀得到 staging 名字 "cat.png"
+                staging_name = output_file.name[len(prefix):] if output_file.name.startswith(prefix) else output_file.name
+                original_path = staged_to_original.get(staging_name)
+                if original_path is None:
+                    continue
+                dest = original_path.parent / output_file.name
+                # 先删除原文件和可能已存在的目标文件，再移动重命名后的文件过去
+                if original_path.exists():
+                    original_path.unlink()
+                if dest.exists():
+                    dest.unlink()
+                shutil.move(str(output_file), str(dest))
     finally:
         shutil.rmtree(process_output_dir, ignore_errors=True)
         shutil.rmtree(working_input, ignore_errors=True)
@@ -2159,6 +2174,444 @@ def _adjust_polygons_with_object(original_shapes: list, object_shape: dict, log:
     return adjusted
 
 
+def _run_synthesize_manual_save(
+    paths: dict[str, Any],
+    params: dict[str, Any],
+    mode: str,
+    backup_dir: str,
+    log: LogFn,
+) -> dict[str, Any]:
+    """手动合成保存：用户点击放置物体，保存合成结果"""
+    label = str(params.get("label", "")).strip()
+    if not label:
+        raise ValueError("label 不能为空")
+    target_label = str(params.get("target_label", "")).strip() or None
+    placements = params.get("placements", [])
+    if not placements:
+        raise ValueError("placements 不能为空")
+
+    # 获取路径
+    source_folder = _collect_first_existing_dir(paths, ["source_folder", "input_dir"])
+    if source_folder is None:
+        raise ValueError("源物体目录无效")
+
+    # placements 格式：[{source_path, click_x, click_y}, ...]
+    # source_path 支持绝对路径或相对于 source_folder 的路径
+    processed_placements: list[dict[str, Any]] = []
+    for p in placements:
+        src_path = p.get("source_path", "")
+        if not src_path:
+            continue
+        src_full = Path(src_path)
+        if not src_full.is_absolute():
+            src_full = Path(source_folder) / src_path
+        if not src_full.exists():
+            log("warn", f"源文件不存在，跳过: {src_path}")
+            continue
+        processed_placements.append({
+            "source_path": src_full,
+            "click_x": float(p.get("click_x", 0)),
+            "click_y": float(p.get("click_y", 0)),
+        })
+
+    if not processed_placements:
+        raise ValueError("没有有效的放置记录")
+
+    # 获取背景图
+    bg_json_folder = _collect_first_existing_dir(paths, ["bg_json_folder", "source_dir"])
+    if bg_json_folder is None:
+        raise ValueError("背景图目录无效")
+
+    bg_json_folder = Path(bg_json_folder)
+    output_folder = _ensure_safe_output_dir(
+        str(paths.get("output_folder", "")),
+        [Path(source_folder), bg_json_folder],
+        "output_dir"
+    )
+    output_folder = Path(output_folder)
+    output_folder.mkdir(parents=True, exist_ok=True)
+
+    # 获取背景图
+    bg_path_raw = str(params.get("bg_path", "")).strip()
+    bg_json_path_raw = str(params.get("bg_json_path", "")).strip()
+
+    if not bg_path_raw:
+        # 回退兼容旧参数名
+        bg_path_raw = str(params.get("bg_filename", "")).strip()
+
+    if not bg_path_raw:
+        raise ValueError("bg_path 不能为空")
+
+    bg_path = Path(bg_path_raw)
+    if not bg_path.is_absolute():
+        bg_path = bg_json_folder / bg_path_raw
+
+    if bg_json_path_raw:
+        json_path = Path(bg_json_path_raw)
+        if not json_path.is_absolute():
+            json_path = bg_json_folder / bg_json_path_raw
+    else:
+        json_path = bg_json_folder / f"{bg_path.stem}.json"
+
+    if not bg_path.exists():
+        raise ValueError(f"背景图不存在: {bg_path}")
+    if not json_path.exists():
+        raise ValueError(f"JSON 不存在: {json_path}")
+
+    log("info", f"手动合成保存: {bg_path.name}, 放置 {len(processed_placements)} 个物体")
+
+    # 缓存目录
+    if getattr(sys, "frozen", False) and hasattr(sys, "executable"):
+        cache_dir = Path(sys.executable).parent / "cache" / "img_tool_synthesize_cache"
+    else:
+        cache_dir = Path(tempfile.gettempdir()) / "img_tool_synthesize_cache"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+
+    model_name = "u2net"
+    max_object_size = int(params.get("max_object_size", 350))
+
+    # 加载背景图
+    bg_img = cv2.imread(str(bg_path), cv2.IMREAD_COLOR)
+    if bg_img is None:
+        raise ValueError(f"无法读取背景图: {bg_path}")
+    bg_img = cv2.cvtColor(bg_img, cv2.COLOR_BGR2BGRA)
+
+    # 读取原 JSON
+    with open(json_path, "r", encoding="utf-8") as f:
+        original_json = json.load(f)
+
+    bg_h, bg_w = bg_img.shape[:2]
+    placed_objects: list[tuple[tuple, "np.ndarray", dict]] = []
+
+    for placement in processed_placements:
+        _require_not_cancelled()
+        src_path = placement["source_path"]
+        click_x = placement["click_x"]
+        click_y = placement["click_y"]
+        scale = float(placement.get("scale", 1.0))
+
+        # 获取抠图缓存（不旋转/镜像）
+        obj_result = _get_or_create_object_cache(
+            src_path, target_label, max_object_size, model_name, cache_dir, log
+        )
+        if obj_result is None:
+            log("warn", f"无法获取物体缓存: {src_path.name}")
+            continue
+
+        object_img = obj_result
+
+        # 应用用户缩放
+        if scale != 1.0 and scale > 0:
+            obj_h0, obj_w0 = object_img.shape[:2]
+            new_w = max(1, int(round(obj_w0 * scale)))
+            new_h = max(1, int(round(obj_h0 * scale)))
+            object_img = cv2.resize(object_img, (new_w, new_h), interpolation=cv2.INTER_AREA if scale < 1.0 else cv2.INTER_LINEAR)
+
+        obj_h, obj_w = object_img.shape[:2]
+
+        # 计算放置区域：以 click_x/click_y 为中心
+        x1 = int(click_x - obj_w / 2)
+        y1 = int(click_y - obj_h / 2)
+        x2 = x1 + obj_w
+        y2 = y1 + obj_h
+
+        # 裁剪到背景边界
+        clip_x1 = max(0, x1)
+        clip_y1 = max(0, y1)
+        clip_x2 = min(bg_w, x2)
+        clip_y2 = min(bg_h, y2)
+
+        # 验证有效区域
+        if clip_x2 <= clip_x1 or clip_y2 <= clip_y1:
+            log("warn", f"放置区域无效，跳过: {src_path.name}")
+            continue
+
+        # 计算在原图中的偏移（处理裁剪）
+        offset_x = clip_x1 - x1
+        offset_y = clip_y1 - y1
+        obj_crop_h = clip_y2 - clip_y1
+        obj_crop_w = clip_x2 - clip_x1
+
+        # 裁剪物体图像
+        object_crop = object_img[offset_y:offset_y + obj_crop_h, offset_x:offset_x + obj_crop_w]
+
+        # 合成到背景
+        alpha = object_crop[:, :, 3] / 255.0
+        roi = bg_img[clip_y1:clip_y2, clip_x1:clip_x2]
+        object_rgb = object_crop[:, :, :3]
+        for c in range(3):
+            roi[:, :, c] = (alpha * object_rgb[:, :, c] + (1 - alpha) * roi[:, :, c]).astype(np.uint8)
+        bg_img[clip_y1:clip_y2, clip_x1:clip_x2] = roi
+
+        # 记录放置信息（使用裁剪后的区域作为 bbox）
+        bbox = (clip_x1, clip_y1, clip_x2, clip_y2)
+        obj_shape = _create_polygon_from_object(object_crop, bbox, label)
+        placed_objects.append((bbox, object_crop, obj_shape))
+
+    if not placed_objects:
+        raise ValueError("没有成功放置任何物体")
+
+    # 保存合成图
+    output_img_path = output_folder / bg_path.name
+    cv2.imwrite(str(output_img_path), cv2.cvtColor(bg_img, cv2.COLOR_BGRA2BGR))
+
+    # 更新 JSON
+    new_shapes = list(original_json.get("shapes", []))
+    for bbox, object_img, obj_shape in placed_objects:
+        new_shapes = _adjust_polygons_with_object(new_shapes, obj_shape, log)
+        new_shapes.append(obj_shape)
+
+    # 读取合成图并转为 base64
+    with open(output_img_path, "rb") as f:
+        img_data = base64.b64encode(f.read()).decode("utf-8")
+
+    new_json = {
+        "version": original_json.get("version", "4.5.6"),
+        "flags": original_json.get("flags", {}),
+        "shapes": new_shapes,
+        "imagePath": bg_path.name,
+        "imageData": img_data,
+        "imageWidth": original_json.get("imageWidth", bg_w),
+        "imageHeight": original_json.get("imageHeight", bg_h),
+    }
+
+    output_json_path = output_folder / f"{bg_path.stem}.json"
+    with open(output_json_path, "w", encoding="utf-8") as f:
+        json.dump(new_json, f, ensure_ascii=False, indent=2)
+
+    log("info", f"已保存: {bg_path.name}")
+    return {
+        "status": "success",
+        "success_count": 1,
+        "fail_count": 0,
+        "skipped_count": 0,
+        "output_path": str(output_folder),
+        "backup_path": "",
+        "error": "",
+    }
+
+
+def _run_synthesize_manual_run(
+    paths: dict[str, Any],
+    params: dict[str, Any],
+    mode: str,
+    backup_dir: str,
+    log: LogFn,
+) -> dict[str, Any]:
+    """手动合成批量执行：处理所有已放置背景图"""
+    label = str(params.get("label", "")).strip()
+    if not label:
+        raise ValueError("label 不能为空")
+    target_label = str(params.get("target_label", "")).strip() or None
+    max_object_size = int(params.get("max_object_size", 350))
+    placements_list = params.get("placements_list", [])
+    if not placements_list:
+        raise ValueError("placements_list 不能为空，请先在画布上放置素材")
+
+    source_folder = _collect_first_existing_dir(paths, ["source_folder", "input_dir"])
+    if source_folder is None:
+        raise ValueError("源物体目录无效")
+
+    bg_json_folder = _collect_first_existing_dir(paths, ["bg_json_folder", "source_dir"])
+    if bg_json_folder is None:
+        raise ValueError("背景图目录无效")
+
+    bg_json_folder = Path(bg_json_folder)
+    output_folder = _ensure_safe_output_dir(
+        str(paths.get("output_folder", "")),
+        [Path(source_folder), bg_json_folder],
+        "output_dir"
+    )
+    output_folder = Path(output_folder)
+    output_folder.mkdir(parents=True, exist_ok=True)
+
+    if getattr(sys, "frozen", False) and hasattr(sys, "executable"):
+        cache_dir = Path(sys.executable).parent / "cache" / "img_tool_synthesize_cache"
+    else:
+        cache_dir = Path(tempfile.gettempdir()) / "img_tool_synthesize_cache"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+
+    model_name = "u2net"
+    success_count = 0
+    fail_count = 0
+
+    log("info", f"手动合成批量执行: 共 {len(placements_list)} 张背景图")
+
+    for bg_entry in placements_list:
+        _require_not_cancelled()
+        bg_path_raw = str(bg_entry.get("bg_path", "")).strip()
+        bg_json_path_raw = str(bg_entry.get("bg_json_path", "")).strip()
+        placements = bg_entry.get("placements", [])
+
+        if not bg_path_raw or not placements:
+            continue
+
+        try:
+            bg_path = Path(bg_path_raw)
+            if not bg_path.is_absolute():
+                bg_path = bg_json_folder / bg_path_raw
+
+            if bg_json_path_raw:
+                json_path = Path(bg_json_path_raw)
+                if not json_path.is_absolute():
+                    json_path = bg_json_folder / bg_json_path_raw
+            else:
+                json_path = bg_json_folder / f"{bg_path.stem}.json"
+
+            if not bg_path.exists():
+                log("warn", f"背景图不存在，跳过: {bg_path}")
+                fail_count += 1
+                continue
+            if not json_path.exists():
+                log("warn", f"JSON 不存在，跳过: {json_path}")
+                fail_count += 1
+                continue
+
+            log("info", f"处理背景图: {bg_path.name}, 放置 {len(placements)} 个物体")
+
+            processed_placements: list[dict[str, Any]] = []
+            for p in placements:
+                src_path = p.get("source_path", "")
+                if not src_path:
+                    continue
+                src_full = Path(src_path)
+                if not src_full.is_absolute():
+                    src_full = Path(source_folder) / src_path
+                if not src_full.exists():
+                    log("warn", f"源文件不存在，跳过: {src_path}")
+                    continue
+                processed_placements.append({
+                    "source_path": src_full,
+                    "click_x": float(p.get("click_x", 0)),
+                    "click_y": float(p.get("click_y", 0)),
+                })
+
+            if not processed_placements:
+                log("warn", f"背景图 {bg_path.name} 没有有效放置记录，跳过")
+                fail_count += 1
+                continue
+
+            bg_img = cv2.imread(str(bg_path), cv2.IMREAD_COLOR)
+            if bg_img is None:
+                log("warn", f"无法读取背景图: {bg_path}")
+                fail_count += 1
+                continue
+            bg_img = cv2.cvtColor(bg_img, cv2.COLOR_BGR2BGRA)
+
+            with open(json_path, "r", encoding="utf-8") as f:
+                original_json = json.load(f)
+
+            bg_h, bg_w = bg_img.shape[:2]
+            placed_objects: list[tuple[tuple, Any, dict]] = []
+
+            for placement in processed_placements:
+                _require_not_cancelled()
+                src_path = placement["source_path"]
+                click_x = placement["click_x"]
+                click_y = placement["click_y"]
+                scale = float(placement.get("scale", 1.0))
+
+                obj_result = _get_or_create_object_cache(
+                    src_path, target_label, max_object_size, model_name, cache_dir, log
+                )
+                if obj_result is None:
+                    log("warn", f"无法获取物体缓存: {src_path.name}")
+                    continue
+
+                object_img = obj_result
+
+                # 应用用户缩放
+                if scale != 1.0 and scale > 0:
+                    obj_h, obj_w = object_img.shape[:2]
+                    new_w = max(1, int(round(obj_w * scale)))
+                    new_h = max(1, int(round(obj_h * scale)))
+                    object_img = cv2.resize(object_img, (new_w, new_h), interpolation=cv2.INTER_AREA if scale < 1.0 else cv2.INTER_LINEAR)
+
+                obj_h, obj_w = object_img.shape[:2]
+
+                x1 = int(click_x - obj_w / 2)
+                y1 = int(click_y - obj_h / 2)
+                x2 = x1 + obj_w
+                y2 = y1 + obj_h
+
+                clip_x1 = max(0, x1)
+                clip_y1 = max(0, y1)
+                clip_x2 = min(bg_w, x2)
+                clip_y2 = min(bg_h, y2)
+
+                if clip_x2 <= clip_x1 or clip_y2 <= clip_y1:
+                    log("warn", f"放置区域无效，跳过: {src_path.name}")
+                    continue
+
+                offset_x = clip_x1 - x1
+                offset_y = clip_y1 - y1
+                obj_crop_h = clip_y2 - clip_y1
+                obj_crop_w = clip_x2 - clip_x1
+
+                object_crop = object_img[offset_y:offset_y + obj_crop_h, offset_x:offset_x + obj_crop_w]
+
+                alpha = object_crop[:, :, 3] / 255.0
+                roi = bg_img[clip_y1:clip_y2, clip_x1:clip_x2]
+                object_rgb = object_crop[:, :, :3]
+                for c in range(3):
+                    roi[:, :, c] = (alpha * object_rgb[:, :, c] + (1 - alpha) * roi[:, :, c]).astype(np.uint8)
+                bg_img[clip_y1:clip_y2, clip_x1:clip_x2] = roi
+
+                bbox = (clip_x1, clip_y1, clip_x2, clip_y2)
+                obj_shape = _create_polygon_from_object(object_crop, bbox, label)
+                placed_objects.append((bbox, object_crop, obj_shape))
+
+            if not placed_objects:
+                log("warn", f"背景图 {bg_path.name} 没有成功放置任何物体")
+                fail_count += 1
+                continue
+
+            output_img_path = output_folder / bg_path.name
+            cv2.imwrite(str(output_img_path), cv2.cvtColor(bg_img, cv2.COLOR_BGRA2BGR))
+
+            new_shapes = list(original_json.get("shapes", []))
+            for bbox, _obj_img, obj_shape in placed_objects:
+                new_shapes = _adjust_polygons_with_object(new_shapes, obj_shape, log)
+                new_shapes.append(obj_shape)
+
+            with open(output_img_path, "rb") as f:
+                img_data = base64.b64encode(f.read()).decode("utf-8")
+
+            new_json = {
+                "version": original_json.get("version", "4.5.6"),
+                "flags": original_json.get("flags", {}),
+                "shapes": new_shapes,
+                "imagePath": bg_path.name,
+                "imageData": img_data,
+                "imageWidth": original_json.get("imageWidth", bg_w),
+                "imageHeight": original_json.get("imageHeight", bg_h),
+            }
+
+            output_json_path = output_folder / f"{bg_path.stem}.json"
+            with open(output_json_path, "w", encoding="utf-8") as f:
+                json.dump(new_json, f, ensure_ascii=False, indent=2)
+
+            log("info", f"已保存: {bg_path.name}")
+            success_count += 1
+
+        except Exception as e:
+            log("error", f"处理背景图 {bg_path_raw} 失败: {e}")
+            fail_count += 1
+
+    if success_count == 0:
+        raise ValueError(f"所有背景图处理失败，共 {fail_count} 张")
+
+    return {
+        "status": "success",
+        "success_count": success_count,
+        "fail_count": fail_count,
+        "skipped_count": 0,
+        "output_path": str(output_folder),
+        "backup_path": "",
+        "error": "",
+    }
+
+
 def execute_task(payload: dict[str, Any], log: LogFn) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise ValueError("payload 必须是对象")
@@ -2187,4 +2640,8 @@ def execute_task(payload: dict[str, Any], log: LogFn) -> dict[str, Any]:
         return _run_reorder_labels(paths, mode, backup_dir, log)
     if task == "synthesize":
         return _run_synthesize(paths, params, mode, backup_dir, log)
+    if task == "synthesize_manual_save":
+        return _run_synthesize_manual_save(paths, params, mode, backup_dir, log)
+    if task == "synthesize_manual_run":
+        return _run_synthesize_manual_run(paths, params, mode, backup_dir, log)
     raise ValueError(f"不支持的 task: {task}")

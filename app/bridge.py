@@ -1,5 +1,7 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
+import base64
+import json
 import os
 import platform
 import shutil
@@ -150,6 +152,82 @@ class ApiBridge:
 
     def inspect_synthesize_source(self, payload: dict[str, Any]) -> dict[str, Any]:
         return inspect_synthesize_source_info(payload)
+
+    def list_directory(self, folder_path: str) -> dict[str, Any]:
+        """列出目录中的文件，返回文件列表供前端使用"""
+        try:
+            if not folder_path or not str(folder_path).strip():
+                return {"ok": False, "error": "路径不能为空", "files": []}
+            
+            p = Path(folder_path).expanduser().resolve()
+            if not p.is_dir():
+                return {"ok": False, "error": f"路径不是有效目录: {p}", "files": []}
+            
+            image_extensions = {".jpg", ".jpeg", ".png", ".bmp", ".gif", ".webp", ".tiff", ".tif"}
+            files: list[dict[str, Any]] = []
+            
+            for item in sorted(p.iterdir(), key=lambda x: str(x).lower()):
+                if item.is_file():
+                    suffix = item.suffix.lower()
+                    files.append({
+                        "name": item.name,
+                        "path": str(item),
+                        "is_image": suffix in image_extensions,
+                        "ext": suffix.lstrip(".") or "",
+                    })
+            
+            return {"ok": True, "files": files, "total": len(files)}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc), "files": []}
+
+    def get_object_preview(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """获取抠图预览，复用执行时的缓存机制以保证预览与实际结果一致"""
+        try:
+            import cv2
+            import numpy as np
+            import tempfile
+            import sys
+            from pathlib import Path as PathLib
+
+            source_path = str(payload.get("source_path", "")).strip()
+            target_label = str(payload.get("target_label", "")).strip() or None
+            max_object_size = int(payload.get("max_object_size", 350))
+
+            if not source_path:
+                return {"ok": False, "error": "source_path 不能为空", "image": ""}
+
+            src = PathLib(source_path).expanduser().resolve()
+            if not src.is_file():
+                return {"ok": False, "error": f"源文件不存在: {src}", "image": ""}
+
+            # 复用 wrappers 的缓存机制，保证预览与执行完全一致
+            from app.wrappers import _get_or_create_object_cache
+
+            if getattr(sys, "frozen", False) and hasattr(sys, "executable"):
+                cache_dir = PathLib(sys.executable).parent / "cache" / "img_tool_synthesize_cache"
+            else:
+                cache_dir = PathLib(tempfile.gettempdir()) / "img_tool_synthesize_cache"
+            cache_dir.mkdir(parents=True, exist_ok=True)
+
+            def _silent_log(level, msg):
+                pass
+
+            result = _get_or_create_object_cache(
+                src, target_label, max_object_size, "u2net", cache_dir, _silent_log
+            )
+
+            if result is None:
+                return {"ok": False, "error": "无法生成抠图预览", "image": ""}
+
+            # 转 base64
+            _, buf = cv2.imencode(".png", result)
+            b64 = base64.b64encode(buf.tobytes()).decode("utf-8")
+
+            return {"ok": True, "image": b64, "width": int(result.shape[1]), "height": int(result.shape[0])}
+        except Exception as exc:
+            import traceback
+            traceback.print_exc()
+            return {"ok": False, "error": str(exc), "image": ""}
 
     def get_settings(self) -> dict[str, Any]:
         try:

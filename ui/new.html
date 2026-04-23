@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+﻿﻿<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
@@ -367,6 +367,233 @@
         .status-badge.error { background: #fef2f2; color: #dc2626; border-color: #fecaca; }
         .status-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
 
+        /* ========== 手动合成 UI ========== */
+        #manualSynthesizeArea { display: none; }
+        #manualSynthesizeArea.active { display: block; }
+        .manual-source-layout {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+            margin-bottom: 16px;
+        }
+        .manual-bg-list, .manual-source-list {
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-md);
+            padding: 12px;
+            max-height: 200px;
+            overflow-y: auto;
+            background: var(--bg-surface);
+        }
+        .manual-list-title {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-muted);
+            margin-bottom: 8px;
+            text-transform: uppercase;
+        }
+        .manual-file-item {
+            display: flex;
+            align-items: center;
+            padding: 6px 8px;
+            border-radius: var(--radius-sm);
+            cursor: pointer;
+            font-size: 12px;
+            gap: 8px;
+            transition: background 0.15s;
+        }
+        .manual-file-item:hover { background: var(--bg-hover); }
+        .manual-file-item.selected { background: var(--primary-light); color: var(--primary); }
+        .manual-file-item.current { background: #fff3cd; color: #856404; border: 2px solid #ffc107; }
+        .manual-file-item.placed { background: #d4edda; color: #155724; opacity: 0.7; }
+        .manual-file-item img {
+            width: 40px;
+            height: 40px;
+            object-fit: contain;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            background: var(--bg-body);
+        }
+        .manual-file-item .file-name {
+            flex: 1;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        /* 素材库样式 */
+        .material-library {
+            margin-bottom: 16px;
+            padding: 12px;
+            background: var(--bg-body);
+            border-radius: var(--radius);
+            border: 1px solid var(--border-color);
+        }
+        .material-library-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            cursor: pointer;
+            user-select: none;
+        }
+        .material-library-title {
+            font-weight: 600;
+            font-size: 14px;
+        }
+        .material-library-toggle {
+            font-size: 12px;
+            color: var(--text-muted);
+            transition: transform 0.2s;
+        }
+        .material-library.collapsed .material-library-toggle {
+            transform: rotate(-90deg);
+        }
+        .material-library.collapsed .material-grid {
+            display: none;
+        }
+        .material-grid {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            max-height: 200px;
+            overflow-y: auto;
+            padding: 4px;
+        }
+        .material-item {
+            width: 80px;
+            height: 80px;
+            border: 2px solid var(--border-color);
+            border-radius: 8px;
+            cursor: pointer;
+            overflow: hidden;
+            position: relative;
+            transition: all 0.15s;
+            background: #fff;
+        }
+        .material-item:hover {
+            border-color: var(--primary);
+            transform: scale(1.05);
+        }
+        .material-item.selected {
+            border-color: var(--primary);
+            box-shadow: 0 0 0 2px var(--primary-light);
+        }
+        .material-item.current {
+            border-color: #ffc107;
+            box-shadow: 0 0 0 2px #fff3cd;
+        }
+        .material-item.placed {
+            opacity: 0.6;
+            border-color: #28a745;
+        }
+        .material-item img {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            background: #f8f9fa;
+        }
+        .material-item .material-index {
+            position: absolute;
+            bottom: 2px;
+            right: 2px;
+            background: rgba(0,0,0,0.6);
+            color: #fff;
+            font-size: 10px;
+            padding: 1px 4px;
+            border-radius: 3px;
+        }
+        /* 背景图导航控制 */
+        .bg-nav-controls {
+            position: absolute;
+            bottom: 10px;
+            right: 10px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: rgba(0,0,0,0.7);
+            padding: 6px 12px;
+            border-radius: 20px;
+            color: #fff;
+            font-size: 13px;
+        }
+        .bg-nav-btn {
+            background: transparent;
+            border: none;
+            color: #fff;
+            cursor: pointer;
+            padding: 4px 8px;
+            font-size: 14px;
+            border-radius: 4px;
+            transition: background 0.15s;
+        }
+        .bg-nav-btn:hover {
+            background: rgba(255,255,255,0.2);
+        }
+        .bg-nav-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        #manualCanvasArea { display: none; }
+        #manualCanvasArea.active { display: block; }
+        #previewContainer_manual {
+            position: relative;
+            display: inline-block;
+            max-width: 100%;
+            border: 2px solid black;
+            box-sizing: border-box;
+        }
+        #manualBgImage {
+            display: block;
+            max-width: 100%;
+            height: auto;
+        }
+        #manualCanvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            cursor: crosshair;
+        }
+        .placed-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 12px;
+            padding: 12px;
+            background: var(--bg-body);
+            border-radius: var(--radius-md);
+            min-height: 60px;
+        }
+        .placed-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 8px;
+            background: var(--bg-surface);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-sm);
+            font-size: 11px;
+        }
+        .placed-item img {
+            width: 32px;
+            height: 32px;
+            object-fit: contain;
+            border: 1px solid var(--border-color);
+        }
+        #btnUndoPlace {
+            margin-top: 12px;
+            height: 34px;
+            padding: 0 16px;
+            font-size: 13px;
+            font-weight: 500;
+            border-radius: var(--radius-md);
+            cursor: pointer;
+            border: 1px solid var(--border-color);
+            background: var(--bg-surface);
+            color: var(--text-main);
+        }
+        #btnUndoPlace:hover:not(:disabled) { background: var(--bg-hover); }
+        #btnUndoPlace:disabled { opacity: 0.5; cursor: not-allowed; }
+
         /* 模态框 */
         .modal-overlay {
             position: fixed; inset: 0; background: rgba(15, 23, 42, 0.4); display: flex; align-items: center; justify-content: center; z-index: 50;
@@ -464,6 +691,33 @@
                     <div class="card-body">
                         <div id="formContainer">
                             <!-- 动态表单将渲染在这里 -->
+                        </div>
+
+                        <!-- 手动合成区域 -->
+                        <div id="manualSynthesizeArea">
+                            <!-- 缩略图素材库 - 放在画布上方 -->
+                            <div class="material-library">
+                                <div class="material-library-header" id="materialLibraryHeader">
+                                    <div class="material-library-title">素材库 <span id="materialCount" style="color:var(--text-muted);font-weight:normal;font-size:12px;"></span></div>
+                                    <span class="material-library-toggle">▼</span>
+                                </div>
+                                <div id="materialGrid" class="material-grid"></div>
+                            </div>
+                            <!-- 画布区域 -->
+                            <div id="manualCanvasArea">
+                                <div id="previewContainer_manual" style="position:relative; display:inline-block;">
+                                    <img id="manualBgImage" style="display:block; max-width:100%;">
+                                    <canvas id="manualCanvas"></canvas>
+                                    <!-- 背景图序号和切换按钮 -->
+                                    <div class="bg-nav-controls">
+                                        <button class="bg-nav-btn" id="btnPrevBg" title="上一张">◀</button>
+                                        <span id="bgIndexDisplay">0/0</span>
+                                        <button class="bg-nav-btn" id="btnNextBg" title="下一张">▶</button>
+                                    </div>
+                                </div>
+                                <div class="placed-list" id="placedList"></div>
+                                <button class="btn" id="btnUndoPlace" disabled>撤销</button>
+                            </div>
                         </div>
 
                         <!-- 按钮与表单融合在底部 -->
@@ -648,6 +902,8 @@
                 { key: "output_folder", label: "输出目录", hint: "合成结果保存位置", placeholder: "选择文件夹...", required: true, safeOnly: true }
             ],
             params: [
+                { key: "synthesize_mode", label: "合成模式", hint: "切换系统自动/手动放置", type: "radio", default: "system",
+                  options: [{ value: "system", label: "系统合成" }, { value: "manual", label: "手动合成" }] },
                 { key: "target_label", label: "源标注标签", hint: "源目录带 JSON 时自动检测并填充", placeholder: "自动检测", type: "text" },
                 { key: "label", label: "合成后标注标签", hint: "输出标注名称（源图无 JSON 时必填）", placeholder: "选择或输入标签", type: "text", datalist: "labelDatalist" },
                 { key: "max_objects", label: "放置数量", hint: "每张背景图放置物体数量", placeholder: "3", type: "number", step: "1", min: "1", max: "10", default: 3 },
@@ -684,7 +940,21 @@
         taskId: "", pollTimer: null, pollToken: 0, logIndex: 0, latestOutputPath: "", latestBackupPath: "", latestError: "",
         previewTimer: null, previewToken: 0, previewLoading: false, previewData: null, previewError: "",
         formData: {}, appSettings: null, autoOpenedTaskId: "", settingsJsonDirty: false,
-        synthesizeInspectToken: 0
+        synthesizeInspectToken: 0,
+        synthesizeManual: {
+            mode: "system",
+            selectedBg: null,
+            selectedSource: null,
+            placements: [],
+            undoStack: [],
+            placementsByBg: {},
+            bgList: [],
+            sourceList: [],
+            currentCroppedPreview: null,
+            placedCount: 0,
+            placedBgs: [],
+            currentBgIndex: 0
+        }
     };
 
     const $ = id => document.getElementById(id);
@@ -1031,10 +1301,15 @@
 
         if (t.params.length > 0) {
             html.push(`<hr style="border:0; border-top:1px dashed var(--border-color); margin: 24px 0;">`);
+            // 手动合成模式下隐藏部分参数
+            const synthMode = ts.params?.synthesize_mode || "system";
+            const hiddenInManual = ["max_objects", "max_object_size", "rotation_angle", "grass_label"];
             // 分行渲染参数，每行最多2个
             const paramRows = [];
             let currentRow = [];
             t.params.forEach(p => {
+                // 手动合成模式隐藏部分参数
+                if (synthMode === "manual" && hiddenInManual.includes(p.key)) return;
                 if (p.type === "radio") {
                     // radio类型单独一行
                     if (currentRow.length > 0) {
@@ -1139,6 +1414,12 @@
                 checkModelStatus();
                 inspectSynthesizeSource(false);
             }));
+            // 初始化手动合成UI
+            setupManualSynthesizeUI();
+        } else {
+            hideManualSynthesizeUI();
+            const clearBtn = $("btnClearSynthesizeCache");
+            if (clearBtn) clearBtn.style.display = "none";
         }
     }
 
@@ -1150,8 +1431,13 @@
                 if (kind === 'path') s.paths[k] = e.target.value;
                 else if (kind === 'param') s.params[k] = e.target.value;
                 else s.backup_dir = e.target.value;
-                if (state.activeTask === "synthesize" && kind === "path" && k === "source_folder") {
+                if (state.activeTask === "synthesize" && kind === "path" && (k === "source_folder" || k === "bg_json_folder")) {
                     inspectSynthesizeSource(true);
+                    // 手动模式下也触发列表加载
+                    if (state.synthesizeManual.mode === "manual") {
+                        if (k === "bg_json_folder") loadBackgroundList();
+                        else if (k === "source_folder") loadMaterialLibrary();
+                    }
                 }
                 triggerPreview();
             });
@@ -1169,6 +1455,10 @@
                 el.addEventListener('change', e => {
                     if (!state.running) {
                         state.formData[state.activeTask].params[p.key] = e.target.value;
+                        // 合成模式切换时更新 state 并显示/隐藏手动合成 UI
+                        if (state.activeTask === "synthesize" && p.key === "synthesize_mode") {
+                            handleSynthesizeModeChange(e.target.value);
+                        }
                         renderForm();
                         // 如果是合成任务的模型选择变化，重新检测模型状态
                         if (state.activeTask === "synthesize" && p.key === "model") {
@@ -1198,6 +1488,11 @@
                 if (state.activeTask === "synthesize" && k === "source_folder") {
                     inspectSynthesizeSource(true);
                 }
+                // 手动合成模式下，路径变化时重新加载列表
+                if (state.activeTask === "synthesize" && state.synthesizeManual.mode === "manual") {
+                    if (k === "bg_json_folder") loadBackgroundList();
+                    else if (k === "source_folder") loadMaterialLibrary();
+                }
                 triggerPreview();
             });
         });
@@ -1216,6 +1511,38 @@
                 alert("清除缓存失败: " + e?.message);
             }
         });
+
+        // 手动合成撤销按钮
+        $("btnUndoPlace")?.addEventListener("click", () => {
+            undoManualPlace();
+        });
+
+        // 手动合成 canvas 点击
+        setupManualCanvasHandler();
+
+        // 事件委托：处理手动合成列表项点击
+        document.addEventListener("click", e => {
+            const bgItem = e.target.closest("#manualBgList .manual-file-item");
+            if (bgItem) {
+                selectManualBg(bgItem.dataset.path);
+                return;
+            }
+            const srcItem = e.target.closest("#manualSourceList .manual-file-item");
+            if (srcItem) {
+                toggleManualSourceSelect(srcItem.dataset.path);
+                return;
+            }
+        });
+
+        // 路径变化时重新加载手动合成列表
+        if (state.activeTask === "synthesize") {
+            const ts = state.formData["synthesize"];
+            const synthMode = ts.params?.synthesize_mode || "system";
+            if (synthMode === "manual") {
+                loadBackgroundList();
+                loadMaterialLibrary();
+            }
+        }
     }
 
     function saveForm() {
@@ -1305,6 +1632,877 @@
         if (!targetInput) return;
         const shouldDisableTarget = mode === "all_without_json" || mode === "all_with_json";
         targetInput.disabled = state.running || shouldDisableTarget;
+    }
+
+    // ========== 手动合成 UI ==========
+    function setupManualSynthesizeUI() {
+        if (state.activeTask !== "synthesize") {
+            hideManualSynthesizeUI();
+            return;
+        }
+        const ts = state.formData["synthesize"];
+        const synthMode = ts.params?.synthesize_mode || "system";
+        state.synthesizeManual.mode = synthMode;
+
+        // 显示主预览容器
+        const previewContainer = $("previewContainer");
+        if (previewContainer) previewContainer.style.display = "";
+
+        if (synthMode === "manual") {
+            showManualSynthesizeUI();
+            // 如果已有选中的背景图，重新加载画布
+            const sm = state.synthesizeManual;
+            if (sm.selectedBg && sm.bgList.length > 0) {
+                selectManualBg(sm.selectedBg.bgPath);
+            }
+        } else {
+            hideManualSynthesizeUI();
+        }
+    }
+
+    // 切换手动合成源物体选中状态
+    function toggleManualSourceSelect(sourcePath) {
+        const sm = state.synthesizeManual;
+        if (sm.selectedSource === sourcePath) {
+            sm.selectedSource = null;
+        } else {
+            sm.selectedSource = sourcePath;
+        }
+        highlightCurrentMaterial();
+    }
+
+    // 暴露给全局 onclick
+    window.selectManualBg = selectManualBg;
+    window.toggleManualSourceSelect = toggleManualSourceSelect;
+
+    function showManualSynthesizeUI() {
+        const area = $("manualSynthesizeArea");
+        if (area) area.classList.add("active");
+        // 确保主预览容器可见
+        const previewContainer = $("previewContainer");
+        if (previewContainer) previewContainer.style.display = "";
+        // 确保 canvas 区域可显示（切换模式回来时需要恢复）
+        const sm = state.synthesizeManual;
+        if (sm.selectedBg) {
+            const canvasArea = $("manualCanvasArea");
+            if (canvasArea) canvasArea.classList.add("active");
+        }
+        // 素材库折叠交互
+        const libHeader = $("materialLibraryHeader");
+        if (libHeader && !libHeader._foldBound) {
+            libHeader._foldBound = true;
+            libHeader.addEventListener("click", () => {
+                libHeader.parentElement.classList.toggle("collapsed");
+            });
+        }
+        loadBackgroundList();
+        loadMaterialLibrary();
+        setupBgNavButtons();
+    }
+
+    function hideManualSynthesizeUI() {
+        const area = $("manualSynthesizeArea");
+        if (area) area.classList.remove("active");
+        const canvasArea = $("manualCanvasArea");
+        if (canvasArea) canvasArea.classList.remove("active");
+        // 隐藏主预览容器
+        const previewContainer = $("previewContainer");
+        if (previewContainer) previewContainer.style.display = "none";
+    }
+
+    // 加载背景图列表（不显示列表，只加载数据）
+    async function loadBackgroundList() {
+        const ts = state.formData["synthesize"];
+        const bgFolder = ts?.paths?.bg_json_folder;
+        const api = window.pywebview?.api;
+
+        if (!bgFolder || !api?.list_directory) {
+            state.synthesizeManual.bgList = [];
+            updateBgIndexDisplay();
+            return;
+        }
+
+        try {
+            const result = await api.list_directory(bgFolder);
+            if (!result?.ok) throw new Error(result?.error || "加载失败");
+            const files = (result.files || []).filter(f => f.is_image && !f.name.startsWith("."));
+            state.synthesizeManual.bgList = files;
+            
+            // 如果没有选中背景图，自动选中第一张
+            if (files.length > 0 && !state.synthesizeManual.selectedBg) {
+                await selectManualBg(files[0].path);
+            }
+            updateBgIndexDisplay();
+        } catch (e) {
+            console.error("加载背景图列表失败:", e);
+            state.synthesizeManual.bgList = [];
+            updateBgIndexDisplay();
+        }
+    }
+
+    // 更新背景图序号显示
+    function updateBgIndexDisplay() {
+        const display = $("bgIndexDisplay");
+        const prevBtn = $("btnPrevBg");
+        const nextBtn = $("btnNextBg");
+        const bgList = state.synthesizeManual.bgList;
+        const currentBg = state.synthesizeManual.selectedBg;
+
+        if (!display) return;
+
+        const total = bgList.length;
+        let currentIndex = 0;
+        if (currentBg && bgList.length > 0) {
+            currentIndex = bgList.findIndex(f => f.path === currentBg.bgPath);
+            if (currentIndex < 0) currentIndex = 0;
+        }
+        state.synthesizeManual.currentBgIndex = currentIndex;
+
+        display.textContent = total > 0 ? `${currentIndex + 1}/${total}` : "0/0";
+
+        if (prevBtn) prevBtn.disabled = currentIndex <= 0;
+        if (nextBtn) nextBtn.disabled = currentIndex >= total - 1;
+    }
+
+    // 设置背景图导航按钮
+    function setupBgNavButtons() {
+        const prevBtn = $("btnPrevBg");
+        const nextBtn = $("btnNextBg");
+
+        if (prevBtn) {
+            prevBtn.onclick = async () => {
+                const bgList = state.synthesizeManual.bgList;
+                const currentIndex = state.synthesizeManual.currentBgIndex;
+                if (currentIndex > 0) {
+                    await selectManualBg(bgList[currentIndex - 1].path);
+                }
+            };
+        }
+
+        if (nextBtn) {
+            nextBtn.onclick = async () => {
+                const bgList = state.synthesizeManual.bgList;
+                const currentIndex = state.synthesizeManual.currentBgIndex;
+                if (currentIndex < bgList.length - 1) {
+                    await selectManualBg(bgList[currentIndex + 1].path);
+                }
+            };
+        }
+    }
+
+    // 加载素材库（缩略图形式）
+    async function loadMaterialLibrary() {
+        const ts = state.formData["synthesize"];
+        const srcFolder = ts?.paths?.source_folder;
+        const api = window.pywebview?.api;
+        const container = $("materialGrid");
+        const countDisplay = $("materialCount");
+
+        if (!container) return;
+        container.innerHTML = '<div style="color:var(--text-muted);font-size:12px;padding:20px;">加载中...</div>';
+
+        if (!srcFolder || !api?.list_directory) {
+            container.innerHTML = '<div style="color:var(--text-muted);font-size:12px;padding:20px;">请先选择源物体目录</div>';
+            if (countDisplay) countDisplay.textContent = "";
+            return;
+        }
+
+        try {
+            const result = await api.list_directory(srcFolder);
+            if (!result?.ok) throw new Error(result?.error || "加载失败");
+            const files = (result.files || []).filter(f => f.is_image && !f.name.startsWith("."));
+            state.synthesizeManual.sourceList = files;
+
+            if (countDisplay) countDisplay.textContent = `(${files.length}张)`;
+
+            if (files.length === 0) {
+                container.innerHTML = '<div style="color:var(--text-muted);font-size:12px;padding:20px;">目录中无图片文件</div>';
+                return;
+            }
+
+            container.innerHTML = files.map((f, idx) => `
+                <div class="material-item" data-path="${escapeAttr(f.path)}" data-index="${idx}" title="${escapeHtml(f.name)}">
+                    <img src="file:///${escapeAttr(f.path.replace(/\\/g, '/'))}" loading="lazy">
+                    <span class="material-index">${idx + 1}</span>
+                </div>
+            `).join("");
+
+            // 绑定点击事件
+            container.querySelectorAll(".material-item").forEach(el => {
+                el.onclick = () => toggleMaterialSelect(el.dataset.path);
+            });
+
+            highlightCurrentMaterial();
+        } catch (e) {
+            container.innerHTML = `<div style="color:var(--danger);font-size:12px;padding:20px;">加载失败: ${escapeHtml(e.message)}</div>`;
+        }
+    }
+
+    // 切换素材选中状态（单选）
+    async function toggleMaterialSelect(sourcePath) {
+        const sm = state.synthesizeManual;
+        // 已放置的素材不可再选
+        const alreadyPlaced = sm.placements.some(p => p.sourcePath === sourcePath);
+        if (alreadyPlaced) return;
+
+        if (sm.selectedSource === sourcePath) {
+            sm.selectedSource = null;
+        } else {
+            sm.selectedSource = sourcePath;
+        }
+
+        highlightCurrentMaterial();
+
+        // 显示当前要放置的素材预览
+        if (sm.selectedBg && sm.selectedSource) {
+            const placedCount = sm.placedCount || 0;
+            if (placedCount < MAX_PLACEMENTS_PER_BG) {
+                try {
+                    const targetLabel = state.formData.synthesize?.params?.target_label || "";
+                    const api = window.pywebview?.api;
+                    const result = await api?.get_object_preview({
+                        source_path: sm.selectedSource,
+                        target_label: targetLabel,
+                        max_object_size: parseInt(state.formData.synthesize?.params?.max_object_size) || 350
+                    });
+                    if (result?.ok && result.image) {
+                        showCroppedPreview(result.image);
+                    }
+                } catch (e) {
+                    console.error("获取裁剪预览失败:", e);
+                }
+            }
+        }
+    }
+
+    // 高亮当前素材（单选模式）
+    function highlightCurrentMaterial() {
+        const selectedSource = state.synthesizeManual.selectedSource;
+        const placements = state.synthesizeManual.placements;
+        const placedPaths = new Set(placements.map(p => p.sourcePath));
+
+        document.querySelectorAll("#materialGrid .material-item").forEach(el => {
+            const path = el.dataset.path;
+            el.classList.remove("current", "placed", "selected");
+
+            if (placedPaths.has(path)) {
+                el.classList.add("placed");
+            } else if (path === selectedSource) {
+                el.classList.add("selected");
+                el.classList.add("current");
+            }
+        });
+    }
+
+    // 在 Canvas 上显示裁剪预览（存储预览图，由 mousemove 跟随鼠标绘制）
+    let _previewImg = null;  // 当前待放置的预览图 Image 对象
+    let _hoveredPlacementIdx = -1;  // 鼠标悬停的放置项索引（-1=无）
+    const MAX_PLACEMENTS_PER_BG = 3;  // 每张背景图最多放置物体数
+
+    // 计算带缩放的绘制参数
+    function getScaledDrawParams(p) {
+        const s = p.scale || 1.0;
+        const w = p.imageWidth * s;
+        const h = p.imageHeight * s;
+        return { w, h, x: p.clickX - w / 2, y: p.clickY - h / 2 };
+    }
+
+    function showCroppedPreview(base64Image) {
+        const img = new Image();
+        img.onload = () => {
+            _previewImg = img;
+            state.synthesizeManual.currentCroppedPreview = base64Image;
+        };
+        img.src = "data:image/png;base64," + base64Image;
+    }
+
+    // 绘制跟随鼠标的预览
+    function drawPreviewAtMouse(canvasX, canvasY) {
+        const canvas = $("manualCanvas");
+        const bgImg = $("manualBgImage");
+        if (!canvas || !_previewImg) return;
+        const ctx = canvas.getContext("2d");
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        if (bgImg && bgImg.complete && bgImg.naturalWidth > 0) {
+            ctx.drawImage(bgImg, 0, 0, canvas.width, canvas.height);
+        }
+        // 重绘已放置的素材
+        const placements = state.synthesizeManual.placements;
+        for (const p of placements) {
+            if (p.croppedPreview) {
+                const placedImg = new Image();
+                placedImg.src = "data:image/png;base64," + p.croppedPreview;
+                if (placedImg.complete) {
+                    const dp = getScaledDrawParams(p);
+                    ctx.drawImage(placedImg, dp.x, dp.y, dp.w, dp.h);
+                }
+            }
+        }
+        // 半透明跟随鼠标绘制
+        ctx.globalAlpha = 0.6;
+        ctx.drawImage(_previewImg, canvasX - _previewImg.width / 2, canvasY - _previewImg.height / 2, _previewImg.width, _previewImg.height);
+        ctx.globalAlpha = 1.0;
+    }
+
+    // 恢复显示背景图
+    function restoreBackgroundImage() {
+        const bgImg = $("manualBgImage");
+        const canvas = $("manualCanvas");
+        if (bgImg) bgImg.style.display = "block";
+        if (canvas && bgImg && bgImg.complete && bgImg.naturalWidth > 0) {
+            const ctx = canvas.getContext("2d");
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+        }
+        _previewImg = null;
+        state.synthesizeManual.currentCroppedPreview = null;
+        redrawManualCanvas();
+    }
+
+    // 暴露给全局 onclick
+    window.selectManualBg = selectManualBg;
+    window.toggleManualSourceSelect = toggleManualSourceSelect;
+
+    async function selectManualBg(bgPath) {
+        const ts = state.formData["synthesize"];
+        const sm = state.synthesizeManual;
+        // 找到对应的 json 文件
+        const jsonPath = bgPath.replace(/\.(jpg|jpeg|png|bmp)$/i, ".json");
+
+        // 切换前：保存当前 placements/undoStack/placedCount/selectedSource 到 placementsByBg
+        if (sm.selectedBg && sm.selectedBg.bgPath !== bgPath) {
+            if (sm.placements.length > 0) {
+                await saveManualSynthesize();
+            }
+            sm.placementsByBg[sm.selectedBg.bgPath] = {
+                placements: [...sm.placements],
+                undoStack: [...sm.undoStack],
+                placedCount: sm.placedCount,
+                selectedSource: sm.selectedSource
+            };
+        }
+
+        // 切换后：重置
+        sm.selectedBg = { bgPath, jsonPath };
+        sm.selectedSource = null;
+        sm.placements = [];
+        sm.undoStack = [];
+        sm.placedCount = 0;
+
+        // 清除所有素材 UI 高亮
+        document.querySelectorAll("#materialGrid .material-item").forEach(el => {
+            el.classList.remove("current", "placed", "selected");
+        });
+
+        // 切换后：检查 placementsByBg 是否存在，存在则恢复
+        const saved = sm.placementsByBg[bgPath];
+        if (saved) {
+            sm.placements = [...saved.placements];
+            sm.undoStack = [...saved.undoStack];
+            sm.placedCount = saved.placedCount;
+            sm.selectedSource = saved.selectedSource;
+        }
+
+        // 更新背景图序号显示
+        updateBgIndexDisplay();
+
+        // 加载背景图到 canvas
+        const canvasArea = $("manualCanvasArea");
+        const bgImg = $("manualBgImage");
+        const canvas = $("manualCanvas");
+        if (!canvasArea || !bgImg || !canvas) return;
+
+        canvasArea.classList.add("active");
+        bgImg.onload = async () => {
+            canvas.width = bgImg.naturalWidth;
+            canvas.height = bgImg.naturalHeight;
+            bgImg.style.display = "block";
+
+            if (saved && saved.placements.length > 0) {
+                await redrawPlacements();
+                highlightCurrentMaterial();
+            } else {
+                restoreBackgroundImage();
+            }
+
+            // 如果有选中的原图且还没放置，显示裁剪预览
+            if (sm.selectedSource && sm.placedCount < MAX_PLACEMENTS_PER_BG) {
+                try {
+                    const targetLabel = state.formData.synthesize?.params?.target_label || "";
+                    const api = window.pywebview?.api;
+                    const result = await api?.get_object_preview({
+                        source_path: sm.selectedSource,
+                        target_label: targetLabel,
+                        max_object_size: parseInt(state.formData.synthesize?.params?.max_object_size) || 350
+                    });
+                    if (result?.ok && result.image) {
+                        showCroppedPreview(result.image);
+                    }
+                } catch (e) {
+                    console.error("获取裁剪预览失败:", e);
+                }
+            }
+        };
+        bgImg.onerror = () => {
+            bgImg.style.display = "none";
+        };
+        bgImg.src = bgPath;
+    }
+
+    function getSelectedSourceImage() {
+        const sm = state.synthesizeManual;
+        if (!sm.selectedSource) return null;
+        const count = sm.placedCount || 0;
+        if (count >= 1) return null;
+        return sm.selectedSource;
+    }
+
+    function getCurrentSourceIndex() {
+        const sm = state.synthesizeManual;
+        if (!sm.selectedSource) return -1;
+        return 0;
+    }
+
+    function renderPlacedList() {
+        const container = $("placedList");
+        const undoBtn = $("btnUndoPlace");
+        if (!container) return;
+
+        const placements = state.synthesizeManual.placements;
+        if (placements.length === 0) {
+            container.innerHTML = '<span style="color:var(--text-muted);font-size:12px;">点击背景图放置物体</span>';
+        } else {
+            container.innerHTML = placements.map((p, i) => `
+                <div class="placed-item" style="flex-direction:column;align-items:stretch;gap:4px;">
+                    <div style="display:flex;align-items:center;gap:6px;">
+                        <span>${escapeHtml(p.sourcePath.split(/[\\/]/).pop())}</span>
+                        <span style="color:var(--text-muted);">(${Math.round(p.clickX)}, ${Math.round(p.clickY)})</span>
+                    </div>
+                    <div style="display:flex;align-items:center;gap:6px;font-size:11px;">
+                        <span style="color:var(--text-muted);white-space:nowrap;">缩放</span>
+                        <input type="range" min="0.2" max="3" step="0.1" value="${p.scale || 1}" data-scale-index="${i}" style="flex:1;height:16px;cursor:pointer;">
+                        <span class="scale-value" style="color:var(--text-muted);min-width:32px;text-align:right;">${Math.round((p.scale || 1) * 100)}%</span>
+                    </div>
+                </div>
+            `).join("");
+            // 绑定缩放滑块事件
+            container.querySelectorAll('input[data-scale-index]').forEach(slider => {
+                slider.addEventListener('input', (e) => {
+                    const idx = parseInt(e.target.dataset.scaleIndex);
+                    const newScale = parseFloat(e.target.value);
+                    if (idx >= 0 && idx < placements.length) {
+                        placements[idx].scale = newScale;
+                        // 更新显示的百分比
+                        e.target.nextElementSibling.textContent = Math.round(newScale * 100) + '%';
+                        // 重绘 canvas
+                        redrawPlacements();
+                    }
+                });
+            });
+        }
+        if (undoBtn) undoBtn.disabled = placements.length === 0;
+    }
+
+    // Canvas 点击放置 & 拖动
+    function setupManualCanvasHandler() {
+        const canvas = $("manualCanvas");
+        if (!canvas) return;
+
+        // ===== 拖动状态 =====
+        let _dragIdx = -1;        // 正在拖动的 placement 索引
+        let _dragOffsetX = 0;     // 拖动偏移
+        let _dragOffsetY = 0;
+        let _mouseDownPos = null;  // 记录 mousedown 位置，用于区分点击/拖动
+        let _isDragging = false;  // 是否正在拖动
+
+        // ===== 键盘 A/D 切换背景图 =====
+        document.addEventListener('keydown', (e) => {
+            if (state.running) return;
+            if (state.activeTask !== "synthesize" || state.synthesizeManual.mode !== "manual") return;
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+            const bgList = state.synthesizeManual.bgList;
+            if (!bgList || bgList.length === 0) return;
+            const currentIndex = state.synthesizeManual.currentBgIndex;
+            if (e.key === 'a' || e.key === 'A') {
+                if (currentIndex > 0) selectManualBg(bgList[currentIndex - 1].path);
+            } else if (e.key === 'd' || e.key === 'D') {
+                if (currentIndex < bgList.length - 1) selectManualBg(bgList[currentIndex + 1].path);
+            }
+        });
+
+        // ===== hit-test =====
+        function hitTestPlacement(cx, cy) {
+            const placements = state.synthesizeManual.placements;
+            for (let i = placements.length - 1; i >= 0; i--) {
+                const dp = getScaledDrawParams(placements[i]);
+                if (cx >= dp.x && cx <= dp.x + dp.w && cy >= dp.y && cy <= dp.y + dp.h) {
+                    return i;
+                }
+            }
+            return -1;
+        }
+
+        // ===== 绘制高亮轮廓 =====
+        function drawHighlight(placement) {
+            const canvas = $("manualCanvas");
+            if (!canvas) return;
+            const ctx = canvas.getContext("2d");
+            const dp = getScaledDrawParams(placement);
+            ctx.save();
+            ctx.strokeStyle = "#00ff00";
+            ctx.lineWidth = 2;
+            ctx.setLineDash([6, 3]);
+            ctx.strokeRect(dp.x, dp.y, dp.w, dp.h);
+            ctx.restore();
+        }
+
+        // ===== 鼠标按下 =====
+        canvas.onmousedown = (e) => {
+            if (e.button !== 0) return;  // 只处理左键
+            const sm = state.synthesizeManual;
+            const rect = canvas.getBoundingClientRect();
+            const scaleX = canvas.width / rect.width;
+            const scaleY = canvas.height / rect.height;
+            const cx = (e.clientX - rect.left) * scaleX;
+            const cy = (e.clientY - rect.top) * scaleY;
+
+            _mouseDownPos = { cx, cy, clientX: e.clientX, clientY: e.clientY };
+            _isDragging = false;
+
+            // 检测是否点中了已放置的物体
+            const hitIdx = hitTestPlacement(cx, cy);
+            if (hitIdx >= 0) {
+                _dragIdx = hitIdx;
+                const p = sm.placements[hitIdx];
+                _dragOffsetX = cx - p.clickX;
+                _dragOffsetY = cy - p.clickY;
+                e.preventDefault();
+            }
+        };
+
+        // ===== 鼠标移动：跟随预览 + 悬停高亮 + 拖动 =====
+        canvas.onmousemove = (e) => {
+            const sm = state.synthesizeManual;
+            const rect = canvas.getBoundingClientRect();
+            const scaleX = canvas.width / rect.width;
+            const scaleY = canvas.height / rect.height;
+            const cx = (e.clientX - rect.left) * scaleX;
+            const cy = (e.clientY - rect.top) * scaleY;
+
+            // 拖动模式
+            if (_dragIdx >= 0 && _mouseDownPos) {
+                const dist = Math.abs(cx - _mouseDownPos.cx) + Math.abs(cy - _mouseDownPos.cy);
+                if (dist > 3) _isDragging = true;
+                if (_isDragging) {
+                    const placement = sm.placements[_dragIdx];
+                    placement.clickX = cx - _dragOffsetX;
+                    placement.clickY = cy - _dragOffsetY;
+                    redrawPlacements();
+                    drawHighlight(placement);
+                    renderPlacedList();
+                }
+                return;
+            }
+
+            // 未放置满且有选中素材时，跟随鼠标预览
+            if (sm.selectedSource && sm.placedCount < MAX_PLACEMENTS_PER_BG && _previewImg) {
+                drawPreviewAtMouse(cx, cy);
+                return;
+            }
+
+            // 已放置物体：检测悬停高亮
+            const hitIdx = hitTestPlacement(cx, cy);
+            if (hitIdx !== _hoveredPlacementIdx) {
+                _hoveredPlacementIdx = hitIdx;
+                redrawPlacements();
+                if (hitIdx >= 0) {
+                    drawHighlight(sm.placements[hitIdx]);
+                    canvas.style.cursor = "move";
+                } else {
+                    canvas.style.cursor = "crosshair";
+                }
+            }
+        };
+
+        // 鼠标离开画布
+        canvas.onmouseleave = () => {
+            const sm = state.synthesizeManual;
+            if (_dragIdx >= 0) {
+                // 拖动中离开画布，结束拖动
+                _dragIdx = -1;
+                _isDragging = false;
+                _mouseDownPos = null;
+            }
+            if (sm.selectedSource && sm.placedCount < MAX_PLACEMENTS_PER_BG && _previewImg) {
+                restoreBackgroundImage();
+            }
+            if (_hoveredPlacementIdx >= 0) {
+                _hoveredPlacementIdx = -1;
+                redrawPlacements();
+            }
+        };
+
+        // ===== 鼠标释放：放置或结束拖动 =====
+        canvas.onmouseup = async (e) => {
+            if (e.button !== 0) return;
+            const sm = state.synthesizeManual;
+
+            // 如果正在拖动，结束拖动
+            if (_isDragging && _dragIdx >= 0) {
+                _dragIdx = -1;
+                _isDragging = false;
+                _mouseDownPos = null;
+                return;
+            }
+            _dragIdx = -1;
+            _isDragging = false;
+            _mouseDownPos = null;
+
+            // 否则执行点击放置逻辑
+            const placedCount = sm.placedCount || 0;
+
+            if (!sm.selectedSource) {
+                return;  // 没选中素材时点击不做任何事
+            }
+
+            if (placedCount >= MAX_PLACEMENTS_PER_BG) {
+                alert(`每张背景图最多放置 ${MAX_PLACEMENTS_PER_BG} 个物体`);
+                return;
+            }
+
+            const selectedSource = sm.selectedSource;
+
+            const rect = canvas.getBoundingClientRect();
+            const scaleX = canvas.width / rect.width;
+            const scaleY = canvas.height / rect.height;
+            const clickX = (e.clientX - rect.left) * scaleX;
+            const clickY = (e.clientY - rect.top) * scaleY;
+
+            if (clickX < 0 || clickY < 0 || clickX > canvas.width || clickY > canvas.height) {
+                return;
+            }
+
+            const bgImg = $("manualBgImage");
+            if (bgImg && bgImg.naturalWidth > 0) {
+                const bgRect = bgImg.getBoundingClientRect();
+                const bgScaleX = bgImg.naturalWidth / bgRect.width;
+                const bgScaleY = bgImg.naturalHeight / bgRect.height;
+                const bgClickX = (e.clientX - bgRect.left) * bgScaleX;
+                const bgClickY = (e.clientY - bgRect.top) * bgScaleY;
+                if (bgClickX < 0 || bgClickY < 0 || bgClickX > bgImg.naturalWidth || bgClickY > bgImg.naturalHeight) {
+                    return;
+                }
+            }
+
+            const targetLabel = state.formData.synthesize?.params?.target_label || "";
+            const api = window.pywebview?.api;
+
+            try {
+                const result = await api?.get_object_preview({
+                    source_path: selectedSource,
+                    target_label: targetLabel,
+                    max_object_size: parseInt(state.formData.synthesize?.params?.max_object_size) || 350
+                });
+
+                if (result?.ok && result.image) {
+                    const img = new Image();
+                    img.onload = () => {
+                        const imageWidth = img.naturalWidth;
+                        const imageHeight = img.naturalHeight;
+
+                        const placement = {
+                            sourcePath: selectedSource,
+                            clickX,
+                            clickY,
+                            imageWidth,
+                            imageHeight,
+                            croppedPreview: result.image,
+                            sourceIndex: placedCount,
+                            scale: 1.0
+                        };
+                        state.synthesizeManual.placements.push(placement);
+                        state.synthesizeManual.undoStack.push(state.synthesizeManual.placements.length - 1);
+                        state.synthesizeManual.placedCount = placedCount + 1;
+
+                        // 放置完成后清除鼠标跟随预览
+                        _previewImg = null;
+                        // 放置后取消选中当前素材，防止重复放置
+                        sm.selectedSource = null;
+
+                        redrawPlacements();
+                        renderPlacedList();
+                        highlightCurrentMaterial();
+                    };
+                    img.src = "data:image/png;base64," + result.image;
+                } else {
+                    alert("获取裁剪预览失败: " + (result?.error || "原图可能没有对应的 JSON 标注文件"));
+                }
+            } catch (err) {
+                console.error("获取裁剪预览失败:", err);
+                alert("获取裁剪预览失败: " + err.message);
+            }
+        };
+
+        // ===== 滚轮缩放 =====
+        canvas.onwheel = (e) => {
+            const sm = state.synthesizeManual;
+            const idx = _hoveredPlacementIdx;
+            if (idx < 0 || idx >= sm.placements.length) return;
+            e.preventDefault();
+            const placement = sm.placements[idx];
+            const delta = e.deltaY > 0 ? -0.1 : 0.1;
+            const newScale = Math.max(0.2, Math.min(3.0, (placement.scale || 1.0) + delta));
+            placement.scale = Math.round(newScale * 10) / 10;
+            redrawPlacements();
+            drawHighlight(placement);
+            renderPlacedList();
+        };
+    }
+
+    async function showNextSourcePreview() {
+        const sm = state.synthesizeManual;
+        const placedCount = sm.placedCount || 0;
+        if (placedCount >= MAX_PLACEMENTS_PER_BG || !sm.selectedSource) {
+            sm.currentCroppedPreview = null;
+            restoreBackgroundImage();
+            return;
+        }
+        const nextSource = sm.selectedSource;
+        if (sm.selectedBg) {
+            try {
+                const targetLabel = state.formData.synthesize?.params?.target_label || "";
+                const api = window.pywebview?.api;
+                const result = await api?.get_object_preview({
+                    source_path: nextSource,
+                    target_label: targetLabel,
+                    max_object_size: parseInt(state.formData.synthesize?.params?.max_object_size) || 350
+                });
+                if (result?.ok && result.image) {
+                    showCroppedPreview(result.image);
+                }
+            } catch (e) {
+                console.error("获取下一张裁剪预览失败:", e);
+            }
+        }
+    }
+
+    // 撤销
+    function undoManualPlace() {
+        if (state.synthesizeManual.placements.length === 0) return;
+        const removed = state.synthesizeManual.placements.pop();
+        state.synthesizeManual.undoStack.pop();
+        if (state.synthesizeManual.placedCount > 0) {
+            state.synthesizeManual.placedCount--;
+        }
+        // 撤销后把被撤销的素材重新选中，方便重新放置
+        if (removed) {
+            state.synthesizeManual.selectedSource = removed.sourcePath;
+        }
+        _hoveredPlacementIdx = -1;
+        redrawManualCanvas();
+        renderPlacedList();
+        highlightCurrentMaterial();
+        showNextSourcePreview();
+    }
+
+    async function redrawPlacements() {
+        const bgImg = $("manualBgImage");
+        const canvas = $("manualCanvas");
+        if (!canvas || !bgImg || !bgImg.complete || bgImg.naturalWidth === 0) return;
+
+        const ctx = canvas.getContext("2d");
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(bgImg, 0, 0, canvas.width, canvas.height);
+
+        const placements = state.synthesizeManual.placements;
+        for (const p of placements) {
+            const img = new Image();
+            await new Promise(resolve => {
+                img.onload = () => {
+                    const dp = getScaledDrawParams(p);
+                    ctx.drawImage(img, dp.x, dp.y, dp.w, dp.h);
+                    resolve();
+                };
+                img.onerror = resolve;
+                img.src = p.croppedPreview ? "data:image/png;base64," + p.croppedPreview : p.sourcePath;
+            });
+        }
+
+        renderPlacedList();
+    }
+
+    async function redrawManualCanvas() {
+        const bgImg = $("manualBgImage");
+        const canvas = $("manualCanvas");
+        if (!canvas || !bgImg || !bgImg.complete) return;
+
+        const ctx = canvas.getContext("2d");
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        const placements = state.synthesizeManual.placements;
+        for (const p of placements) {
+            const img = new Image();
+            await new Promise(resolve => {
+                img.onload = () => {
+                    const dp = getScaledDrawParams(p);
+                    ctx.drawImage(img, dp.x, dp.y, dp.w, dp.h);
+                    resolve();
+                };
+                img.onerror = resolve;
+                // 如果有裁剪预览，使用它
+                img.src = p.croppedPreview ? "data:image/png;base64," + p.croppedPreview : p.sourcePath;
+            });
+        }
+    }
+
+    // 自动保存
+    async function saveManualSynthesize() {
+        const sm = state.synthesizeManual;
+        if (!sm.selectedBg || sm.placements.length === 0) return;
+
+        const ts = state.formData["synthesize"];
+        if (!ts?.paths) return;
+        
+        const payload = {
+            task: "synthesize_manual_save",
+            paths: {
+                source_folder: ts.paths.source_folder || "",
+                bg_json_folder: ts.paths.bg_json_folder || "",
+                output_folder: ts.paths.output_folder || ""
+            },
+            params: {
+                label: ts.params?.label || "",
+                target_label: ts.params?.target_label || "",
+                bg_path: sm.selectedBg.bgPath,
+                bg_json_path: sm.selectedBg.jsonPath,
+                placements: sm.placements.map(p => ({
+                    source_path: p.sourcePath,
+                    click_x: Math.round(p.clickX),
+                    click_y: Math.round(p.clickY),
+                    scale: p.scale || 1.0
+                }))
+            }
+        };
+
+        const api = window.pywebview?.api;
+        if (!api?.run_task) return;
+
+        try {
+            await api.run_task(payload);
+            log("info", "已保存手动合成结果");
+            if (!state.synthesizeManual.placedBgs.includes(sm.selectedBg.bgPath)) {
+                state.synthesizeManual.placedBgs.push(sm.selectedBg.bgPath);
+            }
+            updateBgIndexDisplay();
+        } catch (e) {
+            log("error", "保存失败: " + e.message);
+        }
+    }
+
+    // 监听合成模式切换
+    function handleSynthesizeModeChange(newMode) {
+        state.synthesizeManual.mode = newMode;
+        // 不要在这里调用 showManualSynthesizeUI()
+        // 让 renderForm() -> setupManualSynthesizeUI() 来处理
     }
 
     async function inspectSynthesizeSource(force = false) {
@@ -1649,16 +2847,58 @@
         try {
             saveForm();
             const t = TASKS[state.activeTask];
-            if (state.activeTask === "synthesize") {
-                await inspectSynthesizeSource(false);
-                saveForm();
-            }
             const p = buildPayload();
+            if (state.activeTask === "synthesize") {
+                const synthMode = p.params?.synthesize_mode || "system";
+                if (synthMode === "manual") {
+                    // 手动模式：收集所有背景图 placements，构建批量执行 payload
+                    const sm = state.synthesizeManual;
+                    // 把当前背景图的 placements 也先存入 placementsByBg
+                    if (sm.selectedBg && sm.placements.length > 0) {
+                        sm.placementsByBg[sm.selectedBg.bgPath] = {
+                            placements: [...sm.placements],
+                            undoStack: [...sm.undoStack],
+                            placedCount: sm.placedCount,
+                            selectedSource: sm.selectedSource
+                        };
+                    }
+                    // 收集所有已放置的背景图
+                    const placementsList = [];
+                    for (const [bgPath, bgData] of Object.entries(sm.placementsByBg)) {
+                        if (bgData.placements && bgData.placements.length > 0) {
+                            placementsList.push({
+                                bg_path: bgPath,
+                                bg_json_path: bgPath.replace(/\.(jpg|jpeg|png|bmp)$/i, ".json"),
+                                placements: bgData.placements.map(pl => ({
+                                    source_path: pl.sourcePath,
+                                    click_x: Math.round(pl.clickX),
+                                    click_y: Math.round(pl.clickY),
+                                    scale: pl.scale || 1.0
+                                }))
+                            });
+                        }
+                    }
+                    if (placementsList.length === 0) {
+                        throw new Error("手动合成模式下没有放置任何素材，请先在画布上放置素材");
+                    }
+                    // 覆盖 payload：任务改为 synthesize_manual_run
+                    p.task = "synthesize_manual_run";
+                    p.params = {
+                        label: p.params.label || "",
+                        target_label: p.params.target_label || "",
+                        max_object_size: p.params.max_object_size || 350,
+                        placements_list: placementsList
+                    };
+                } else {
+                    await inspectSynthesizeSource(false);
+                    saveForm();
+                }
+            }
 
             t.paths.forEach(f => { if(f.safeOnly && state.mode==="in_place") return; if(f.required && !p.paths[f.key]) throw new Error(`请指定${f.label}`); });
             t.params.forEach(f => { if(f.required && p.params[f.key]===undefined) throw new Error(`请填写参数: ${f.label}`); });
 
-            if (state.activeTask === "synthesize") {
+            if (state.activeTask === "synthesize" && p.task === "synthesize") {
                 await inspectSynthesizeSource(false);
                 const synth = getSynthesizeTaskState();
                 const analysis = synth?.sourceAnalysis || {};
