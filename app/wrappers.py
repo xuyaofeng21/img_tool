@@ -2195,7 +2195,7 @@ def _run_synthesize_manual_save(
     if source_folder is None:
         raise ValueError("源物体目录无效")
 
-    # placements 格式：[{source_path, click_x, click_y}, ...]
+    # placements 格式：[{source_path, click_x, click_y, scale}, ...]
     # source_path 支持绝对路径或相对于 source_folder 的路径
     processed_placements: list[dict[str, Any]] = []
     for p in placements:
@@ -2212,6 +2212,7 @@ def _run_synthesize_manual_save(
             "source_path": src_full,
             "click_x": float(p.get("click_x", 0)),
             "click_y": float(p.get("click_y", 0)),
+            "scale": float(p.get("scale", 1.0)),
         })
 
     if not processed_placements:
@@ -2484,6 +2485,7 @@ def _run_synthesize_manual_run(
                     "source_path": src_full,
                     "click_x": float(p.get("click_x", 0)),
                     "click_y": float(p.get("click_y", 0)),
+                    "scale": float(p.get("scale", 1.0)),
                 })
 
             if not processed_placements:

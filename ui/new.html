@@ -1199,6 +1199,7 @@
 
     function renderMode() {
         const isSafeCopyDisabled = state.activeTask === "reorder_labels";
+        const isInPlaceDisabled = state.activeTask === "synthesize";
         document.querySelectorAll(".mode-card").forEach(el => {
             const input = el.querySelector('input');
             if (input) {
@@ -1209,6 +1210,12 @@
                     input.disabled = isSafeCopyDisabled;
                     el.style.opacity = isSafeCopyDisabled ? "0.5" : "1";
                     el.style.pointerEvents = isSafeCopyDisabled ? "none" : "";
+                }
+                // 合成标注时禁用覆盖原文件
+                if (input.value === "in_place") {
+                    input.disabled = isInPlaceDisabled;
+                    el.style.opacity = isInPlaceDisabled ? "0.5" : "1";
+                    el.style.pointerEvents = isInPlaceDisabled ? "none" : "";
                 }
             }
             el.classList.toggle("active", input && input.value === state.mode);
@@ -1267,6 +1274,10 @@
             `);
         });
 
+        // 合成标注强制 safe_copy 模式（必须在警告渲染前处理）
+        if (state.activeTask === "synthesize" && state.mode === "in_place") {
+            state.mode = "safe_copy";
+        }
         if (state.mode === "in_place") {
             html.push(`
                 <div class="form-group" style="padding: 16px; background: var(--danger-bg); border: 1px solid var(--danger-border); border-radius: var(--radius-md); margin-top: 20px;">
@@ -1394,17 +1405,14 @@
                 if (inPlaceRadio) inPlaceRadio.checked = true;
                 renderMode();
             }
+            // 隐藏手动合成 UI
+            hideManualSynthesizeUI();
         } else if (state.activeTask === "synthesize") {
-            // 合成标注不支持原地修改，强制切为安全复制
+            // 合成标注不支持原地修改，确保 safe_copy 模式 + 同步 UI
             if (state.mode === "in_place") {
                 state.mode = "safe_copy";
-                // 同步radio的checked状态
-                const safeCopyRadio = document.querySelector('input[name="mode"][value="safe_copy"]');
-                const inPlaceRadio = document.querySelector('input[name="mode"][value="in_place"]');
-                if (safeCopyRadio) safeCopyRadio.checked = true;
-                if (inPlaceRadio) inPlaceRadio.checked = false;
-                renderMode();
             }
+            renderMode();
             // 显示清除缓存按钮
             const clearBtn = $("btnClearSynthesizeCache");
             if (clearBtn) clearBtn.style.display = "";
