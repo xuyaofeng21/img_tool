@@ -104,8 +104,8 @@ jobs:
           # 复制可执行文件和资源
           cp -r dist/ImgToolbox/* AppDir/usr/bin/
 
-          # 创建图标（1x1 透明 PNG）
-          python3 -c "import base64,pathlib; pathlib.Path('AppDir/usr/share/icons/hicolor/256x256/apps/imgtoolbox.png').write_bytes(base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='))"
+          # 创建图标（使用 ImageMagick 生成真正的 256x256 PNG）
+          convert -size 256x256 xc:"#4A90D9" AppDir/usr/share/icons/hicolor/256x256/apps/imgtoolbox.png
 
           # 创建桌面文件
           printf '[Desktop Entry]\nName=ImgToolbox\nComment=Personal Image Batch Processing Toolbox\nExec=ImgToolbox\nIcon=imgtoolbox\nTerminal=false\nType=Application\nCategories=Graphics;Utility;\n' > AppDir/usr/share/applications/imgtoolbox.desktop
