@@ -117,10 +117,7 @@ jobs:
 
           # 创建桌面文件
           printf '[Desktop Entry]\nName=ImgToolbox\nComment=Personal Image Batch Processing Toolbox\nExec=ImgToolbox\nIcon=imgtoolbox\nTerminal=false\nType=Application\nCategories=Graphics;Utility;\n' > AppDir/usr/share/applications/imgtoolbox.desktop
-
-          # 创建 AppRun
-          printf '#!/bin/bash\nHERE="$(dirname "$(readlink -f "${0}")")"\nexec "${HERE}/usr/bin/ImgToolbox" "$@"\n' > AppDir/AppRun
-          chmod +x AppDir/AppRun
+          # AppRun 由 linuxdeploy-plugin-gtk 自动生成（含 GI_TYPELIB_PATH 等 GTK 环境变量）
 
       - name: Build AppImage
         run: |
@@ -166,7 +163,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.event_name == 'push' && github.ref_name || format('build-{0}', github.run_number) }}
-          name: ${{ github.event_name == 'push' && github.ref_name || format('Build #{0}', github.run_number) }}
+          name: ${{ github.event_name == 'push' && github.ref_name || format('Build-{0}', github.run_number) }}
           body: |
             ## 自动构建产物
             
