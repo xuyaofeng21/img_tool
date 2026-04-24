@@ -42,7 +42,7 @@ def main() -> None:
     ui_file = _resolve_ui_file()
 
     window = webview.create_window(
-        title="个人图片批量处理工具箱",
+        title="图片工具箱(纯AI 0手工)",
         url=ui_file.as_uri(),
         js_api=bridge,
         width=1320,

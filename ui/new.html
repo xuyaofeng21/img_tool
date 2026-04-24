@@ -636,7 +636,7 @@
         </div>
 
         <div class="sidebar-content">
-            <h3 class="nav-label" style="margin-left:0; margin-bottom: 12px;">算法工具箱</h3>
+            <h3 class="nav-label" style="margin-left:0; margin-bottom: 12px;">图片工具箱</h3>
             <div id="navContainer">
                 <!-- 动态注入任务导航 -->
             </div>
@@ -2121,6 +2121,7 @@
         let _dragOffsetY = 0;
         let _mouseDownPos = null;  // 记录 mousedown 位置，用于区分点击/拖动
         let _isDragging = false;  // 是否正在拖动
+        let _isPlacing = false;   // 是否正在放置（防止重复点击）
 
         // ===== 键盘 A/D 切换背景图 =====
         document.addEventListener('keydown', (e) => {
@@ -2301,6 +2302,11 @@
                 }
             }
 
+            // 显示加载提示，防止重复点击
+            if (_isPlacing) return;
+            _isPlacing = true;
+            canvas.style.cursor = "wait";
+
             const targetLabel = state.formData.synthesize?.params?.target_label || "";
             const api = window.pywebview?.api;
 
@@ -2339,14 +2345,26 @@
                         redrawPlacements();
                         renderPlacedList();
                         highlightCurrentMaterial();
+                        // 恢复光标
+                        canvas.style.cursor = "crosshair";
+                        _isPlacing = false;
                     };
                     img.src = "data:image/png;base64," + result.image;
                 } else {
-                    alert("获取裁剪预览失败: " + (result?.error || "原图可能没有对应的 JSON 标注文件"));
+                    canvas.style.cursor = "crosshair";
+                    _isPlacing = false;
+                    const errorMsg = result?.error || "原图可能没有对应的 JSON 标注文件";
+                    if (errorMsg.includes("JSON") || errorMsg.includes("标注")) {
+                        alert("裁剪失败：该图片缺少 LabelMe JSON 标注文件，请先标注后再放置");
+                    } else {
+                        alert("裁剪预览失败: " + errorMsg);
+                    }
                 }
             } catch (err) {
                 console.error("获取裁剪预览失败:", err);
-                alert("获取裁剪预览失败: " + err.message);
+                canvas.style.cursor = "crosshair";
+                _isPlacing = false;
+                alert("裁剪预览失败: " + err.message);
             }
         };
 

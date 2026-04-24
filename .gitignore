@@ -9,6 +9,7 @@ wheels/
 *.whl
 .pytest_cache/
 .tox/
+docs/
 
 # Virtual environments
 .venv/
