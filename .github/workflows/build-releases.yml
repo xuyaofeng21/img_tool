@@ -23,7 +23,9 @@ jobs:
       - name: Install uv
         run: |
           irm https://astral.sh/uv/install.ps1 | iex
-          echo "$HOME/.cargo/bin" >> $env:GITHUB_PATH
+          $uvPath = "$HOME\.cargo\bin"
+          echo $uvPath >> $env:GITHUB_PATH
+          $env:PATH = "$uvPath;$env:PATH"
 
       - name: Install dependencies
         run: |
@@ -113,34 +115,32 @@ jobs:
           # 复制可执行文件和资源
           cp -r dist/ImgToolbox/* AppDir/usr/bin/
           
-          # 创建桌面文件
-          cat > AppDir/usr/share/applications/imgtoolbox.desktop << 'EOF'
-          [Desktop Entry]
-          Name=ImgToolbox
-          Comment=个人图片批量处理工具箱
-          Exec=ImgToolbox
-          Terminal=false
-          Type=Application
-          Categories=Graphics;Utility;
-          EOF
-          
-          # 创建一个简单的默认图标（1x1 透明 PNG）
+          # 创建图标
           python3 -c "
-          import base64
-          # 1x1 透明 PNG
-          icon_data = base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==')
-          with open('AppDir/usr/share/icons/hicolor/256x256/apps/imgtoolbox.png', 'wb') as f:
-              f.write(icon_data)
-          with open('AppDir/imgtoolbox.png', 'wb') as f:
-              f.write(icon_data)
-          "
+import base64
+icon_data = base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==')
+with open('AppDir/usr/share/icons/hicolor/256x256/apps/imgtoolbox.png', 'wb') as f:
+    f.write(icon_data)
+"
           
-          # 创建 AppRun 入口脚本
-          cat > AppDir/AppRun << 'EOF'
-          #!/bin/bash
-          HERE="$(dirname "$(readlink -f "${0}")")"
-          exec "${HERE}/usr/bin/ImgToolbox" "$@"
-          EOF
+          # 创建桌面文件（注意：必须无行首缩进）
+          cat > AppDir/usr/share/applications/imgtoolbox.desktop << 'DESKTOPEOF'
+[Desktop Entry]
+Name=ImgToolbox
+Comment=Personal Image Batch Processing Toolbox
+Exec=ImgToolbox
+Icon=imgtoolbox
+Terminal=false
+Type=Application
+Categories=Graphics;Utility;
+DESKTOPEOF
+          
+          # 创建 AppRun 入口脚本（注意：必须无行首缩进）
+          cat > AppDir/AppRun << 'APPRUNEOF'
+#!/bin/bash
+HERE="$(dirname "$(readlink -f "${0}")")" 
+exec "${HERE}/usr/bin/ImgToolbox" "$@"
+APPRUNEOF
           chmod +x AppDir/AppRun
 
       - name: Build AppImage
@@ -148,16 +148,11 @@ jobs:
           ./linuxdeploy-x86_64.AppImage \
             --appdir AppDir \
             --desktop-file AppDir/usr/share/applications/imgtoolbox.desktop \
+            --icon-file AppDir/usr/share/icons/hicolor/256x256/apps/imgtoolbox.png \
             --output appimage
           
-          # 重命名输出
-          mv ImgToolbox-*.AppImage ImgToolbox-Linux.AppImage || true
-          # 如果没有生成带版本号的，用默认名
-          if [ ! -f "ImgToolbox-Linux.AppImage" ]; then
-            ls -la *.AppImage || echo "No AppImage found"
-            # 尝试找到生成的 AppImage
-            find . -name "*.AppImage" -exec mv {} ImgToolbox-Linux.AppImage \;
-          fi
+          # 查找生成的 AppImage 并重命名
+          find . -maxdepth 1 -name "*.AppImage" ! -name "linuxdeploy*" | head -1 | xargs -I{} mv {} ImgToolbox-Linux.AppImage
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
