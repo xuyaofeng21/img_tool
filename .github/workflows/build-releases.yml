@@ -75,9 +75,7 @@ jobs:
             libgirepository1.0-dev \
             gcc \
             libcairo2-dev \
-            python3-dev \
-            python3-gi \
-            python3-gi-cairo
+            python3-dev
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -89,10 +87,10 @@ jobs:
 
       - name: Install Python dependencies
         run: |
-          uv venv --system-site-packages .venv
+          uv venv .venv
           source .venv/bin/activate
           uv pip install -e .
-          uv pip install pyinstaller
+          uv pip install pyinstaller "pygobject==3.48.2"
 
       - name: Build with PyInstaller
         run: |
@@ -103,9 +101,6 @@ jobs:
         run: |
           wget -q https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
           chmod +x linuxdeploy-x86_64.AppImage
-          # 下载 GTK 插件（自动处理 GI_TYPELIB_PATH / GTK/WebKit 依赖打包）
-          wget -q https://github.com/linuxdeploy/linuxdeploy-plugin-gtk/releases/download/continuous/linuxdeploy-plugin-gtk-x86_64.AppImage
-          chmod +x linuxdeploy-plugin-gtk-x86_64.AppImage
 
       - name: Create AppDir structure
         run: |
@@ -119,15 +114,14 @@ jobs:
 
           # 创建桌面文件
           printf '[Desktop Entry]\nName=ImgToolbox\nComment=Personal Image Batch Processing Toolbox\nExec=ImgToolbox\nIcon=imgtoolbox\nTerminal=false\nType=Application\nCategories=Graphics;Utility;\n' > AppDir/usr/share/applications/imgtoolbox.desktop
-          # AppRun 由 linuxdeploy-plugin-gtk 自动生成（含 GI_TYPELIB_PATH 等 GTK 环境变量）
+          # AppRun 由 linuxdeploy 自动生成
 
       - name: Build AppImage
         run: |
-          DEPLOY_GTK_VERSION=3 ./linuxdeploy-x86_64.AppImage \
+          ./linuxdeploy-x86_64.AppImage \
             --appdir AppDir \
             --desktop-file AppDir/usr/share/applications/imgtoolbox.desktop \
             --icon-file AppDir/usr/share/icons/hicolor/256x256/apps/imgtoolbox.png \
-            --plugin gtk \
             --output appimage
           
           # 查找生成的 AppImage 并重命名
@@ -173,6 +167,12 @@ jobs:
             - **Linux**: ImgToolbox-Linux.AppImage (单文件运行)
             
             > 注意：当前版本仅支持手动合成功能，系统合成已暂时屏蔽。
+            
+            ### Linux 系统依赖
+            AppImage 在 Linux 上需要以下系统库（Ubuntu 22.04 桌面版通常已有 GTK3）：
+            ```
+            sudo apt install libwebkit2gtk-4.0-0 gir1.2-webkit2-4.0
+            ```
           files: release-assets/*
           draft: false
           prerelease: ${{ github.event_name != 'push' }}
