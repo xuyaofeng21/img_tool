@@ -21,11 +21,7 @@ jobs:
           python-version: '3.12'
 
       - name: Install uv
-        run: |
-          irm https://astral.sh/uv/install.ps1 | iex
-          $uvPath = "$HOME\.cargo\bin"
-          echo $uvPath >> $env:GITHUB_PATH
-          $env:PATH = "$uvPath;$env:PATH"
+        uses: astral-sh/setup-uv@v5
 
       - name: Install dependencies
         run: |
@@ -74,12 +70,7 @@ jobs:
             appstream \
             libfuse2 \
             curl \
-            desktop-file-utils \
-            software-properties-common
-          # 添加 deadsnakes PPA 获取 Python 3.12
-          sudo add-apt-repository -y ppa:deadsnakes/ppa
-          sudo apt-get update
-          sudo apt-get install -y python3.12 python3.12-venv python3.12-dev
+            desktop-file-utils
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -87,9 +78,7 @@ jobs:
           python-version: '3.12'
 
       - name: Install uv
-        run: |
-          curl -LsSf https://astral.sh/uv/install.sh | sh
-          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+        uses: astral-sh/setup-uv@v5
 
       - name: Install Python dependencies
         run: |
@@ -110,37 +99,19 @@ jobs:
 
       - name: Create AppDir structure
         run: |
-          mkdir -p AppDir/usr/{bin,share/applications,share/icons/hicolor/256x256/apps}
-          
+          mkdir -p AppDir/usr/bin AppDir/usr/share/applications AppDir/usr/share/icons/hicolor/256x256/apps
+
           # 复制可执行文件和资源
           cp -r dist/ImgToolbox/* AppDir/usr/bin/
-          
-          # 创建图标
-          python3 -c "
-import base64
-icon_data = base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==')
-with open('AppDir/usr/share/icons/hicolor/256x256/apps/imgtoolbox.png', 'wb') as f:
-    f.write(icon_data)
-"
-          
-          # 创建桌面文件（注意：必须无行首缩进）
-          cat > AppDir/usr/share/applications/imgtoolbox.desktop << 'DESKTOPEOF'
-[Desktop Entry]
-Name=ImgToolbox
-Comment=Personal Image Batch Processing Toolbox
-Exec=ImgToolbox
-Icon=imgtoolbox
-Terminal=false
-Type=Application
-Categories=Graphics;Utility;
-DESKTOPEOF
-          
-          # 创建 AppRun 入口脚本（注意：必须无行首缩进）
-          cat > AppDir/AppRun << 'APPRUNEOF'
-#!/bin/bash
-HERE="$(dirname "$(readlink -f "${0}")")" 
-exec "${HERE}/usr/bin/ImgToolbox" "$@"
-APPRUNEOF
+
+          # 创建图标（1x1 透明 PNG）
+          python3 -c "import base64,pathlib; pathlib.Path('AppDir/usr/share/icons/hicolor/256x256/apps/imgtoolbox.png').write_bytes(base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='))"
+
+          # 创建桌面文件
+          printf '[Desktop Entry]\nName=ImgToolbox\nComment=Personal Image Batch Processing Toolbox\nExec=ImgToolbox\nIcon=imgtoolbox\nTerminal=false\nType=Application\nCategories=Graphics;Utility;\n' > AppDir/usr/share/applications/imgtoolbox.desktop
+
+          # 创建 AppRun
+          printf '#!/bin/bash\nHERE="$(dirname "$(readlink -f "${0}")")"\nexec "${HERE}/usr/bin/ImgToolbox" "$@"\n' > AppDir/AppRun
           chmod +x AppDir/AppRun
 
       - name: Build AppImage
