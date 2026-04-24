@@ -152,8 +152,8 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.event_name == 'push' && github.ref_name || 'manual-build' }}
-          name: Release ${{ github.event_name == 'push' && github.ref_name || format('manual-{0}', github.run_number) }}
+          tag_name: ${{ github.event_name == 'push' && github.ref_name || format('build-{0}', github.run_number) }}
+          name: ${{ github.event_name == 'push' && github.ref_name || format('Build #{0}', github.run_number) }}
           body: |
             ## 自动构建产物
             
@@ -163,7 +163,7 @@ jobs:
             > 注意：当前版本仅支持手动合成功能，系统合成已暂时屏蔽。
           files: release-assets/*
           draft: false
-          prerelease: false
+          prerelease: ${{ github.event_name != 'push' }}
           generate_release_notes: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
