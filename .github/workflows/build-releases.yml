@@ -135,7 +135,6 @@ jobs:
     name: Create GitHub Release
     needs: [build-windows, build-linux]
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/')
     
     steps:
       - name: Download Windows artifact
@@ -153,9 +152,18 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ github.event_name == 'push' && github.ref_name || 'manual-build' }}
+          name: Release ${{ github.event_name == 'push' && github.ref_name || format('manual-{0}', github.run_number) }}
+          body: |
+            ## 自动构建产物
+            
+            - **Windows**: ImgToolbox-Windows.zip (EXE + 依赖)
+            - **Linux**: ImgToolbox-Linux.AppImage (单文件运行)
+            
+            > 注意：当前版本仅支持手动合成功能，系统合成已暂时屏蔽。
           files: release-assets/*
           draft: false
           prerelease: false
-          generate_release_notes: true
+          generate_release_notes: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
