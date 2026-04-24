@@ -51,5 +51,5 @@ test_data/
 temp/
 reports/
 
-# 打包产物
-*.spec
+# 打包产物（spec 文件需要保留）
+# *.spec
