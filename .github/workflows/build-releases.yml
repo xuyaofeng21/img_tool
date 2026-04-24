@@ -75,7 +75,6 @@ jobs:
             libgirepository1.0-dev \
             gcc \
             libcairo2-dev \
-            pkg-config \
             python3-dev
 
       - name: Set up Python
@@ -102,6 +101,9 @@ jobs:
         run: |
           wget -q https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
           chmod +x linuxdeploy-x86_64.AppImage
+          # 下载 GTK 插件（自动处理 GI_TYPELIB_PATH / GTK/WebKit 依赖打包）
+          wget -q https://github.com/linuxdeploy/linuxdeploy-plugin-gtk/releases/download/continuous/linuxdeploy-plugin-gtk-x86_64.AppImage
+          chmod +x linuxdeploy-plugin-gtk-x86_64.AppImage
 
       - name: Create AppDir structure
         run: |
@@ -122,14 +124,17 @@ jobs:
 
       - name: Build AppImage
         run: |
-          ./linuxdeploy-x86_64.AppImage \
+          DEPLOY_GTK_VERSION=3 ./linuxdeploy-x86_64.AppImage \
             --appdir AppDir \
             --desktop-file AppDir/usr/share/applications/imgtoolbox.desktop \
             --icon-file AppDir/usr/share/icons/hicolor/256x256/apps/imgtoolbox.png \
+            --plugin gtk \
             --output appimage
           
           # 查找生成的 AppImage 并重命名
-          find . -maxdepth 1 -name "*.AppImage" ! -name "linuxdeploy*" | head -1 | xargs -I{} mv {} ImgToolbox-Linux.AppImage
+          APPIMAGE_FILE=$(find . -maxdepth 1 -type f -name "*.AppImage" ! -name "linuxdeploy*" | head -1)
+          if [ -z "$APPIMAGE_FILE" ]; then echo "Error: AppImage not generated" && exit 1; fi
+          mv "$APPIMAGE_FILE" ImgToolbox-Linux.AppImage
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -141,6 +146,8 @@ jobs:
     name: Create GitHub Release
     needs: [build-windows, build-linux]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write  # 必须，否则创建 Release 返回 403
     
     steps:
       - name: Download Windows artifact
