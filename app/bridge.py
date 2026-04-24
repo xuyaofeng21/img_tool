@@ -203,11 +203,8 @@ class ApiBridge:
             # 复用 wrappers 的缓存机制，保证预览与执行完全一致
             from app.wrappers import _get_or_create_object_cache
 
-            if getattr(sys, "frozen", False) and hasattr(sys, "executable"):
-                cache_dir = PathLib(sys.executable).parent / "cache" / "img_tool_synthesize_cache"
-            else:
-                cache_dir = PathLib(tempfile.gettempdir()) / "img_tool_synthesize_cache"
-            cache_dir.mkdir(parents=True, exist_ok=True)
+            from app import get_cache_dir
+            cache_dir = get_cache_dir()
 
             def _silent_log(level, msg):
                 pass
@@ -418,10 +415,8 @@ class ApiBridge:
     def clear_cache(self) -> dict[str, Any]:
         """清除合成缓存目录"""
         try:
-            if getattr(sys, "frozen", False) and hasattr(sys, "executable"):
-                cache_dir = Path(sys.executable).parent / "cache" / "img_tool_synthesize_cache"
-            else:
-                cache_dir = Path(tempfile.gettempdir()) / "img_tool_synthesize_cache"
+            from app import get_cache_dir
+            cache_dir = get_cache_dir()
 
             removed_count = 0
             if cache_dir.exists():

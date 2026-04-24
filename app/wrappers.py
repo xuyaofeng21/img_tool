@@ -1683,12 +1683,8 @@ def _run_synthesize(
 
     log("info", f"源物体: {len(source_files)} 张, 背景图: {len(bg_json_pairs)} 张")
 
-    # 缓存目录：打包态放在 exe 同级，否则用系统临时目录
-    if getattr(sys, "frozen", False) and hasattr(sys, "executable"):
-        cache_dir = Path(sys.executable).parent / "cache" / "img_tool_synthesize_cache"
-    else:
-        cache_dir = Path(tempfile.gettempdir()) / "img_tool_synthesize_cache"
-    cache_dir.mkdir(parents=True, exist_ok=True)
+    from app import get_cache_dir
+    cache_dir = get_cache_dir()
     log("info", f"缓存目录: {cache_dir}")
 
     model_name = "u2net"
