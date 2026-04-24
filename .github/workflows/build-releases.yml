@@ -59,8 +59,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            python3.10 \
-            python3.10-venv \
+            python3.12 \
+            python3.12-venv \
             build-essential \
             cmake \
             libgl1-mesa-glx \
@@ -79,7 +79,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: '3.12'
 
       - name: Install uv
         run: |
@@ -88,7 +88,7 @@ jobs:
 
       - name: Install Python dependencies
         run: |
-          uv venv --python 3.10 .venv
+          uv venv --python 3.12 .venv
           source .venv/bin/activate
           uv pip install -e .
           uv pip install pyinstaller
