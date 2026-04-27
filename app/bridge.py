@@ -200,27 +200,26 @@ class ApiBridge:
             if not src.is_file():
                 return {"ok": False, "error": f"源文件不存在: {src}", "image": ""}
 
-            # 复用 wrappers 的缓存机制，保证预览与执行完全一致
-            from app.wrappers import _get_or_create_object_cache
-
-            from app import get_cache_dir
-            cache_dir = get_cache_dir()
+            # 手动合成模式：使用 JSON 标注创建 mask，跳过 rembg
+            from app.wrappers import _load_source_with_json_annotation
 
             def _silent_log(level, msg):
                 pass
 
-            result = _get_or_create_object_cache(
-                src, target_label, max_object_size, "u2net", cache_dir, _silent_log
+            result = _load_source_with_json_annotation(
+                src, target_label, max_object_size, _silent_log
             )
 
             if result is None:
-                return {"ok": False, "error": "无法生成抠图预览", "image": ""}
+                return {"ok": False, "error": "源素材缺少 JSON 标注（手动模式要求每个素材有对应的 labelme JSON）", "image": ""}
+
+            object_img, _polygon_points, _src_label = result
 
             # 转 base64
-            _, buf = cv2.imencode(".png", result)
+            _, buf = cv2.imencode(".png", object_img)
             b64 = base64.b64encode(buf.tobytes()).decode("utf-8")
 
-            return {"ok": True, "image": b64, "width": int(result.shape[1]), "height": int(result.shape[0])}
+            return {"ok": True, "image": b64, "width": int(object_img.shape[1]), "height": int(object_img.shape[0])}
         except Exception as exc:
             import traceback
             traceback.print_exc()

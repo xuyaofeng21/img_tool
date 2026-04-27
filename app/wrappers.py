@@ -1335,7 +1335,43 @@ def _run_rename_v2(paths: dict[str, Any], params: dict[str, Any], mode: str, bac
         source_roots = [source_dir]
         default_output_path = source_dir
 
-    # staging 时保留原始文件名，这样 rename2.py 输出 prefix + 原始文件名 = 正确的新文件名
+    # in_place 极致性能优化：直接 os.rename，跳过暂存目录和复制
+    if mode == "in_place":
+        backup_path = ""
+        if backup_dir:
+            backup_session = _backup_files(stage_inputs, backup_dir, "rename2") if input_mode == "file" else _backup_directories("rename2", source_roots, backup_dir, log)
+            backup_path = str(backup_session)
+
+        success = 0
+        fail = 0
+        skipped = 0
+        for src in stage_inputs:
+            if not src.exists():
+                skipped += 1
+                continue
+            new_name = f"{prefix}{src.name}"
+            new_path = src.parent / new_name
+            try:
+                if new_path.exists() and new_path != src:
+                    new_path.unlink()
+                os.rename(str(src), str(new_path))
+                log("info", f"已重命名: {src.name} → {new_name}")
+                success += 1
+            except Exception as e:
+                log("error", f"重命名失败: {src.name} - {e}")
+                fail += 1
+
+        return {
+            "status": "success",
+            "success_count": success,
+            "fail_count": fail,
+            "skipped_count": skipped,
+            "output_path": str(default_output_path),
+            "backup_path": backup_path,
+            "error": "",
+        }
+
+    # safe_copy 模式：使用暂存目录 + 脚本处理
     working_input = Path(tempfile.mkdtemp(prefix="rename2_working_"))
     staged_to_original: dict[str, Path] = {}
     for src in stage_inputs:
@@ -1397,6 +1433,11 @@ def _run_rename_v2(paths: dict[str, Any], params: dict[str, Any], mode: str, bac
 
 
 def _run_json_path_v2(paths: dict[str, Any], mode: str, backup_dir: str, log: LogFn) -> dict[str, Any]:
+    # JSON 路径修复只支持覆盖源文件（原地修改）
+    if mode == "safe_copy":
+        log("warn", "JSON 路径修复不支持另存输出，已自动切换为覆盖源文件模式")
+        mode = "in_place"
+
     json_module = _load_script_module("script_json_path", "更改json路径.py")
 
     input_mode, mode_warnings = _normalize_input_mode(paths.get("input_mode", "folder"))
@@ -1434,21 +1475,14 @@ def _run_json_path_v2(paths: dict[str, Any], mode: str, backup_dir: str, log: Lo
         result_output_path = source_roots[0]
 
         working_input, staged_to_original = _stage_files_with_ascii_names(source_jsons, "json_path")
-        if mode == "safe_copy":
-            output_dir = _ensure_safe_output_dir(str(paths.get("output_dir", "")), source_roots, "output_dir")
-            output_path = output_dir
-        else:
-            if backup_dir:
-                backup_session = _backup_files(source_jsons, backup_dir, "json_path")
-                backup_path = str(backup_session)
-            output_path = result_output_path
+        if backup_dir:
+            backup_session = _backup_files(source_jsons, backup_dir, "json_path")
+            backup_path = str(backup_session)
+        output_path = result_output_path
 
         try:
             lines = run_script(working_input, source_roots[0])
-            if mode == "safe_copy":
-                _restore_outputs_to_dir(working_input, staged_to_original, output_path)
-            else:
-                _restore_outputs_back(working_input, staged_to_original)
+            _restore_outputs_back(working_input, staged_to_original)
         finally:
             shutil.rmtree(working_input, ignore_errors=True)
     else:
@@ -1456,17 +1490,11 @@ def _run_json_path_v2(paths: dict[str, Any], mode: str, backup_dir: str, log: Lo
         if json_dir is None:
             raise ValueError("json_dir 不能为空")
 
-        if mode == "safe_copy":
-            output_dir = _ensure_safe_output_dir(str(paths.get("output_dir", "")), [json_dir], "output_dir")
-            _copy_json_workspace(json_dir, output_dir, log)
-            lines = run_script(output_dir)
-            output_path = output_dir
-        else:
-            if backup_dir:
-                backup_session = _backup_directories("json_path", [json_dir], backup_dir, log)
-                backup_path = str(backup_session)
-            lines = run_script(json_dir)
-            output_path = json_dir
+        if backup_dir:
+            backup_session = _backup_directories("json_path", [json_dir], backup_dir, log)
+            backup_path = str(backup_session)
+        lines = run_script(json_dir)
+        output_path = json_dir
 
     success, fail, skipped = _counts_from_json(lines)
     return {
@@ -2388,6 +2416,88 @@ def _run_synthesize_manual_save(
     }
 
 
+def _load_source_with_json_annotation(
+    source_path: Path,
+    target_label: str | None,
+    max_object_size: int,
+    log: LogFn,
+) -> tuple | None:
+    """从源素材的 labelme JSON 加载物体图像和标注多边形。
+
+    手动合成专用：直接使用 JSON 标注创建 mask，跳过 rembg。
+    严格模式：无 JSON 或无匹配标注时返回 None。
+
+    Returns:
+        (bgra_image, polygon_points, src_label) 或 None
+    """
+    json_path = source_path.parent / f"{source_path.stem}.json"
+    if not json_path.exists():
+        log("warn", f"源素材缺少 JSON 标注，跳过: {source_path.name}")
+        return None
+
+    try:
+        with open(json_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception as e:
+        log("warn", f"读取 JSON 失败: {source_path.name} - {e}")
+        return None
+
+    # 查找匹配的多边形标注
+    matched_shape = None
+    for shape in data.get("shapes", []):
+        if shape.get("shape_type") != "polygon":
+            continue
+        if target_label and shape.get("label") != target_label:
+            continue
+        matched_shape = shape
+        break
+
+    # 没有指定 target_label 或未匹配时，取第一个多边形
+    if matched_shape is None and not target_label:
+        for shape in data.get("shapes", []):
+            if shape.get("shape_type") == "polygon":
+                matched_shape = shape
+                break
+
+    if matched_shape is None:
+        log("warn", f"源 JSON 中未找到匹配的多边形标注: {source_path.name}")
+        return None
+
+    src_label = matched_shape.get("label", "")
+    polygon_points = [[float(p[0]), float(p[1])] for p in matched_shape.get("points", [])]
+
+    # 加载源图像
+    img = cv2.imread(str(source_path), cv2.IMREAD_UNCHANGED)
+    if img is None:
+        log("warn", f"无法读取源图像: {source_path.name}")
+        return None
+
+    # 转换为 BGRA
+    if len(img.shape) == 2:
+        img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2BGRA)
+    elif img.shape[2] == 3:
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2BGRA)
+
+    h, w = img.shape[:2]
+
+    # 使用 JSON 多边形创建 alpha mask
+    pts = np.array(polygon_points, dtype=np.int32)
+    mask = np.zeros((h, w), dtype=np.uint8)
+    cv2.fillPoly(mask, [pts], 255)
+    img[:, :, 3] = mask
+
+    # 缩放到 max_object_size
+    if w > max_object_size or h > max_object_size:
+        s = min(max_object_size / w, max_object_size / h)
+        new_w, new_h = int(round(w * s)), int(round(h * s))
+        img = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_AREA)
+        # 同步缩放 polygon_points
+        polygon_points = [[p[0] * s, p[1] * s] for p in polygon_points]
+
+    return img, polygon_points, src_label
+
+
 def _run_synthesize_manual_run(
     paths: dict[str, Any],
     params: dict[str, Any],
@@ -2422,13 +2532,6 @@ def _run_synthesize_manual_run(
     output_folder = Path(output_folder)
     output_folder.mkdir(parents=True, exist_ok=True)
 
-    if getattr(sys, "frozen", False) and hasattr(sys, "executable"):
-        cache_dir = Path(sys.executable).parent / "cache" / "img_tool_synthesize_cache"
-    else:
-        cache_dir = Path(tempfile.gettempdir()) / "img_tool_synthesize_cache"
-    cache_dir.mkdir(parents=True, exist_ok=True)
-
-    model_name = "u2net"
     success_count = 0
     fail_count = 0
 
@@ -2509,14 +2612,14 @@ def _run_synthesize_manual_run(
                 click_y = placement["click_y"]
                 scale = float(placement.get("scale", 1.0))
 
-                obj_result = _get_or_create_object_cache(
-                    src_path, target_label, max_object_size, model_name, cache_dir, log
+                # 手动模式：直接读 JSON 标注，跳过 rembg（严格模式）
+                json_result = _load_source_with_json_annotation(
+                    src_path, target_label, max_object_size, log
                 )
-                if obj_result is None:
-                    log("warn", f"无法获取物体缓存: {src_path.name}")
-                    continue
+                if json_result is None:
+                    continue  # 严格模式：无 JSON 标注则跳过
 
-                object_img = obj_result
+                object_img, src_polygon_points, _src_label = json_result
 
                 # 应用用户缩放
                 if scale != 1.0 and scale > 0:
@@ -2524,6 +2627,8 @@ def _run_synthesize_manual_run(
                     new_w = max(1, int(round(obj_w * scale)))
                     new_h = max(1, int(round(obj_h * scale)))
                     object_img = cv2.resize(object_img, (new_w, new_h), interpolation=cv2.INTER_AREA if scale < 1.0 else cv2.INTER_LINEAR)
+                    # 同步缩放 JSON 标注多边形点
+                    src_polygon_points = [[p[0] * scale, p[1] * scale] for p in src_polygon_points]
 
                 obj_h, obj_w = object_img.shape[:2]
 
@@ -2555,8 +2660,10 @@ def _run_synthesize_manual_run(
                     roi[:, :, c] = (alpha * object_rgb[:, :, c] + (1 - alpha) * roi[:, :, c]).astype(np.uint8)
                 bg_img[clip_y1:clip_y2, clip_x1:clip_x2] = roi
 
+                # 直接用源 JSON 多边形做仿射变换，避免 rembg mask 偏差
+                transformed_points = [[p[0] + x1, p[1] + y1] for p in src_polygon_points]
+                obj_shape = {"label": label, "points": transformed_points, "shape_type": "polygon"}
                 bbox = (clip_x1, clip_y1, clip_x2, clip_y2)
-                obj_shape = _create_polygon_from_object(object_crop, bbox, label)
                 placed_objects.append((bbox, object_crop, obj_shape))
 
             if not placed_objects:

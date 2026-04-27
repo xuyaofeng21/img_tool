@@ -1,7 +1,7 @@
 import json
 import os
 import sys
-import multiprocessing as mp
+from concurrent.futures import ThreadPoolExecutor
 from tqdm import tqdm
 from pathlib import Path
 
@@ -117,18 +117,18 @@ def update_image_paths_in_json(json_folder_path, image_folder_path, source_json_
     print(f"找到 {len(json_files)} 个JSON文件，{len(image_files)} 个图片文件")
     print(f"匹配规则：JSON文件名（不含扩展名）→ 图片文件名（不含扩展名）\n")
 
-    # 准备多进程任务参数
+    # 准备任务参数
     task_args = [
         (json_file, image_folder, image_files, relative_image_path, image_extensions)
         for json_file in json_files
     ]
 
-    # 多进程处理
-    cpu_count = mp.cpu_count()
-    print(f"使用 {cpu_count} 个进程处理...")
+    # 线程池并行处理（IO 密集型任务，线程池足够；避免多进程弹窗）
+    worker_count = min(8, max(1, (os.cpu_count() or 4)))
+    print(f"使用 {worker_count} 个线程处理...")
 
-    with mp.Pool(processes=cpu_count) as pool:
-        results = list(tqdm(pool.imap(process_single_json, task_args), total=len(json_files)))
+    with ThreadPoolExecutor(max_workers=worker_count) as pool:
+        results = list(tqdm(pool.map(process_single_json, task_args), total=len(json_files)))
 
     # 打印处理结果汇总
     print("\n处理结果：")
@@ -139,10 +139,6 @@ def update_image_paths_in_json(json_folder_path, image_folder_path, source_json_
 
 
 if __name__ == "__main__":
-    # 解决Windows多进程兼容问题
-    if sys.platform.startswith('win'):
-        mp.set_start_method('spawn', force=True)
-
     # 命令行参数或交互式输入
     # 用法: python 更改json路径.py <json文件夹> <图片文件夹> [原始json目录]
     if len(sys.argv) >= 3:

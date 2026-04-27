@@ -500,6 +500,27 @@
             padding: 1px 4px;
             border-radius: 3px;
         }
+        .material-item .material-usage {
+            position: absolute;
+            top: 2px;
+            right: 2px;
+            background: rgba(0,0,0,0.7);
+            color: #fff;
+            font-size: 9px;
+            padding: 1px 4px;
+            border-radius: 3px;
+            line-height: 1.2;
+        }
+        .material-item .material-usage.full {
+            background: #dc3545;
+            color: #fff;
+        }
+        .material-item.limit-reached {
+            opacity: 0.35;
+            border-color: #dc3545;
+            cursor: not-allowed;
+            pointer-events: none;
+        }
         /* 背景图导航控制 */
         .bg-nav-controls {
             position: absolute;
@@ -902,8 +923,8 @@
                 { key: "output_folder", label: "输出目录", hint: "合成结果保存位置", placeholder: "选择文件夹...", required: true, safeOnly: true }
             ],
             params: [
-                { key: "synthesize_mode", label: "合成模式", hint: "切换系统自动/手动放置", type: "radio", default: "system",
-                  options: [{ value: "system", label: "系统合成" }, { value: "manual", label: "手动合成" }] },
+                { key: "synthesize_mode", label: "合成模式", hint: "切换系统自动/手动放置", type: "radio", default: "manual",
+                  options: [{ value: "system", label: "系统合成", disabled: true }, { value: "manual", label: "手动合成" }] },
                 { key: "target_label", label: "源标注标签", hint: "源目录带 JSON 时自动检测并填充", placeholder: "自动检测", type: "text" },
                 { key: "label", label: "合成后标注标签", hint: "输出标注名称（源图无 JSON 时必填）", placeholder: "选择或输入标签", type: "text", datalist: "labelDatalist" },
                 { key: "max_objects", label: "放置数量", hint: "每张背景图放置物体数量", placeholder: "3", type: "number", step: "1", min: "1", max: "10", default: 3 },
@@ -929,10 +950,11 @@
             recursive: false,
             sample_limit: 20,
             debounce_ms: 300,
-            expand_details_by_default: false
+            expand_details_by_default: true
         },
         history: { remember_paths: true, max_recent_paths: 10, recent_paths: [] },
-        paths: { default_backup_dir: "", default_output_dir: "" }
+        paths: { default_backup_dir: "", default_output_dir: "" },
+        synthesize: { max_placement_per_material: 10 }
     };
 
     const state = {
@@ -942,7 +964,7 @@
         formData: {}, appSettings: null, autoOpenedTaskId: "", settingsJsonDirty: false,
         synthesizeInspectToken: 0,
         synthesizeManual: {
-            mode: "system",
+            mode: "manual",
             selectedBg: null,
             selectedSource: null,
             placements: [],
@@ -1144,7 +1166,6 @@
                     state.activeTask = k;
                     renderAll();
                     // 合成任务检查模型状态（延迟到DOM更新后）
-                    if (k === "synthesize") requestAnimationFrame(() => requestAnimationFrame(checkModelStatus));
                     // 恢复之前保存的数据
                     restoreTaskLogs(k);
                     restoreTaskResult(k);
@@ -1198,7 +1219,7 @@
     }
 
     function renderMode() {
-        const isSafeCopyDisabled = state.activeTask === "reorder_labels";
+        const isSafeCopyDisabled = state.activeTask === "reorder_labels" || state.activeTask === "json_path";
         const isInPlaceDisabled = state.activeTask === "synthesize";
         document.querySelectorAll(".mode-card").forEach(el => {
             const input = el.querySelector('input');
@@ -1253,6 +1274,11 @@
             `);
         }
 
+        // 合成标注强制 safe_copy 模式（必须在路径渲染前处理，否则 safeOnly 字段会被跳过）
+        if (state.activeTask === "synthesize" && state.mode === "in_place") {
+            state.mode = "safe_copy";
+        }
+
         t.paths.forEach(p => {
             if (p.safeOnly && state.mode === "in_place" && !(state.activeTask === "select_diverse" && p.key === "output_dir")) return;
             const inputMode = ts.input_mode || 'folder';
@@ -1274,10 +1300,6 @@
             `);
         });
 
-        // 合成标注强制 safe_copy 模式（必须在警告渲染前处理）
-        if (state.activeTask === "synthesize" && state.mode === "in_place") {
-            state.mode = "safe_copy";
-        }
         if (state.mode === "in_place") {
             html.push(`
                 <div class="form-group" style="padding: 16px; background: var(--danger-bg); border: 1px solid var(--danger-border); border-radius: var(--radius-md); margin-top: 20px;">
@@ -1294,22 +1316,6 @@
         // 隐藏清除缓存按钮（非合成标注时）
         const clearBtn = $("btnClearSynthesizeCache");
         if (clearBtn) clearBtn.style.display = "none";
-
-        // 合成任务显示模型状态
-        if (state.activeTask === "synthesize") {
-            const sourceHint = ts.sourceAnalysis?.message || "请选择源物体目录后自动检测";
-            const hintColor = ts.sourceAnalysis?.ok === false ? "#dc2626" : "#16a34a";
-            html.push(`
-                <div id="modelStatusContainer" style="padding: 12px 16px; background: var(--bg-surface); border: 1px solid var(--border-color); border-radius: var(--radius-md); margin-bottom: 20px; display: flex; align-items: center; justify-content: space-between;">
-                    <span style="font-size:13px;color:var(--text-muted);">抠图模型:</span>
-                    <span style="font-size:13px;color:var(--text-muted);">检测中...</span>
-                </div>
-                <div id="synthesizeSourceStatus" style="padding: 12px 16px; background: var(--bg-surface); border: 1px solid var(--border-color); border-radius: var(--radius-md); margin-bottom: 20px;">
-                    <span style="font-size:13px;color:${hintColor};">${escapeHtml(sourceHint)}</span>
-                </div>
-            `);
-        }
-
         if (t.params.length > 0) {
             html.push(`<hr style="border:0; border-top:1px dashed var(--border-color); margin: 24px 0;">`);
             // 手动合成模式下隐藏部分参数
@@ -1344,9 +1350,9 @@
                     const p = row[0];
                     const val = ts.params[p.key] ?? p.default ?? "";
                     const opts = p.options.map(opt => `
-                        <label class="radio-box ${val === opt.value ? 'active' : ''}" style="padding: 8px 14px;">
-                            <input type="radio" name="${escapeAttr(p.key)}" value="${escapeAttr(opt.value)}" ${val === opt.value ? 'checked' : ''} ${state.running ? 'disabled' : ''}>
-                            <div class="radio-box-content"><strong>${escapeHtml(opt.label)}</strong></div>
+                        <label class="radio-box ${val === opt.value ? 'active' : ''}" style="padding: 8px 14px; ${opt.disabled ? 'opacity: 0.4; pointer-events: none; cursor: not-allowed;' : ''}">
+                            <input type="radio" name="${escapeAttr(p.key)}" value="${escapeAttr(opt.value)}" ${val === opt.value ? 'checked' : ''} ${state.running || opt.disabled ? 'disabled' : ''}>
+                            <div class="radio-box-content"><strong>${escapeHtml(opt.label)}</strong>${opt.disabled ? '<span style="font-size:11px;color:var(--text-muted);display:block;">(暂未开放)</span>' : ''}</div>
                         </label>
                     `).join("");
                     html.push(`<div class="form-group"><div class="label-row"><label>${escapeHtml(p.label)}</label><span class="hint">${escapeHtml(p.hint)}</span></div><div class="radio-grid">${opts}</div></div>`);
@@ -1395,8 +1401,8 @@
         }
         bindFormEvents();
         triggerPreview();
-        if (state.activeTask === "reorder_labels") {
-            // 标签排序不支持另存输出，强制切为原地修改
+        if (state.activeTask === "reorder_labels" || state.activeTask === "json_path") {
+            // 标签排序/JSON路径修复不支持另存输出，强制切为原地修改
             if (state.mode === "safe_copy") {
                 state.mode = "in_place";
                 const safeCopyRadio = document.querySelector('input[name="mode"][value="safe_copy"]');
@@ -1419,7 +1425,6 @@
             updateSynthesizeSourceStatusUI();
             applySynthesizeParamStateUI();
             requestAnimationFrame(() => requestAnimationFrame(() => {
-                checkModelStatus();
                 inspectSynthesizeSource(false);
             }));
             // 初始化手动合成UI
@@ -1468,10 +1473,6 @@
                             handleSynthesizeModeChange(e.target.value);
                         }
                         renderForm();
-                        // 如果是合成任务的模型选择变化，重新检测模型状态
-                        if (state.activeTask === "synthesize" && p.key === "model") {
-                            requestAnimationFrame(() => requestAnimationFrame(checkModelStatus));
-                        }
                         triggerPreview();
                     }
                 });
@@ -1821,6 +1822,16 @@
             const files = (result.files || []).filter(f => f.is_image && !f.name.startsWith("."));
             state.synthesizeManual.sourceList = files;
 
+            // 切换素材源目录时重置全局放置计数
+            if (state.synthesizeManual.lastSourceFolder && state.synthesizeManual.lastSourceFolder !== srcFolder) {
+                state.synthesizeManual.placements = [];
+                state.synthesizeManual.undoStack = [];
+                state.synthesizeManual.placedCount = 0;
+                state.synthesizeManual.placementsByBg = {};
+                state.synthesizeManual.selectedSource = null;
+            }
+            state.synthesizeManual.lastSourceFolder = srcFolder;
+
             if (countDisplay) countDisplay.textContent = `(${files.length}张)`;
 
             if (files.length === 0) {
@@ -1853,6 +1864,10 @@
         const alreadyPlaced = sm.placements.some(p => p.sourcePath === sourcePath);
         if (alreadyPlaced) return;
 
+        // 已达全局放置上限的素材不可再选
+        const maxPerMaterial = getAppSettings()?.synthesize?.max_placement_per_material || 10;
+        if (getGlobalMaterialCount(sourcePath) >= maxPerMaterial) return;
+
         if (sm.selectedSource === sourcePath) {
             sm.selectedSource = null;
         } else {
@@ -1884,16 +1899,40 @@
     }
 
     // 高亮当前素材（单选模式）
+    // 统计某个素材在所有背景图中的累计放置次数
+    function getGlobalMaterialCount(sourcePath) {
+        const sm = state.synthesizeManual;
+        let count = sm.placements.filter(p => p.sourcePath === sourcePath).length;
+        for (const bgPath in sm.placementsByBg) {
+            count += (sm.placementsByBg[bgPath].placements || []).filter(p => p.sourcePath === sourcePath).length;
+        }
+        return count;
+    }
+
     function highlightCurrentMaterial() {
         const selectedSource = state.synthesizeManual.selectedSource;
         const placements = state.synthesizeManual.placements;
         const placedPaths = new Set(placements.map(p => p.sourcePath));
+        const maxPerMaterial = getAppSettings()?.synthesize?.max_placement_per_material || 10;
 
         document.querySelectorAll("#materialGrid .material-item").forEach(el => {
             const path = el.dataset.path;
-            el.classList.remove("current", "placed", "selected");
+            el.classList.remove("current", "placed", "selected", "limit-reached");
 
-            if (placedPaths.has(path)) {
+            // 更新使用次数徽章
+            let usageBadge = el.querySelector(".material-usage");
+            if (!usageBadge) {
+                usageBadge = document.createElement("span");
+                usageBadge.className = "material-usage";
+                el.appendChild(usageBadge);
+            }
+            const globalCount = getGlobalMaterialCount(path);
+            usageBadge.textContent = globalCount > 0 ? `${globalCount}/${maxPerMaterial}` : "";
+            usageBadge.classList.toggle("full", globalCount >= maxPerMaterial);
+
+            if (globalCount >= maxPerMaterial) {
+                el.classList.add("limit-reached");
+            } else if (placedPaths.has(path)) {
                 el.classList.add("placed");
             } else if (path === selectedSource) {
                 el.classList.add("selected");
@@ -2278,6 +2317,14 @@
                 return;
             }
 
+            // 每个素材的放置次数限制（从 settings 读取，默认 10，跨所有背景图统计）
+            const maxPerMaterial = getAppSettings()?.synthesize?.max_placement_per_material || 10;
+            const globalMaterialCount = getGlobalMaterialCount(sm.selectedSource);
+            if (globalMaterialCount >= maxPerMaterial) {
+                alert(`每个素材最多放置 ${maxPerMaterial} 次（当前已放置 ${globalMaterialCount} 次）`);
+                return;
+            }
+
             const selectedSource = sm.selectedSource;
 
             const rect = canvas.getBoundingClientRect();
@@ -2634,81 +2681,6 @@
     }
 
     // 模型状态检测与下载
-    let modelDownloading = false;
-
-    async function checkModelStatus() {
-        const container = $("modelStatusContainer");
-        if (!container) return;
-
-        container.innerHTML = `<span style="font-size:13px;color:#666;">检测中...</span>`;
-
-        if (!hasApi()) {
-            container.innerHTML = `<span style="color:#f59e0b;font-size:13px;">⚠ 无API连接</span>`;
-            return;
-        }
-        try {
-            const res = await window.pywebview.api.check_model_status();
-            if (!res.ok) {
-                container.innerHTML = `<span style="color:#f59e0b;font-size:13px;">错误: ${res.error}</span>`;
-                return;
-            }
-
-            // 模型状态
-            const modelReady = res.u2net === true;
-            const modelDir = String(res.model_home || "");
-            const onnxFiles = Array.isArray(res.files) ? res.files : [];
-            const onnxFilesText = onnxFiles.length > 0 ? onnxFiles.join(", ") : "无";
-            const searchResults = Array.isArray(res.search_results) ? res.search_results : [];
-            const searchDetails = searchResults.map(r => `${r.label}: ${r.files.join(", ") || "无文件"}`).join(" | ");
-            const details = `
-                <div style="font-size:11px;color:#64748b;margin-top:6px;">模型目录: ${escapeHtml(modelDir || "未知")}</div>
-                <div style="font-size:11px;color:#64748b;margin-top:2px;">ONNX文件: ${escapeHtml(onnxFilesText)}</div>
-                <div style="font-size:11px;color:#64748b;margin-top:2px;">搜索结果: ${escapeHtml(searchDetails || "无")}</div>
-            `;
-
-            if (modelReady) {
-                container.innerHTML = `
-                    <div>
-                        <span style="color:#22c55e;font-size:13px;">✓ u2net 模型已就绪</span>
-                        ${details}
-                    </div>
-                `;
-            } else {
-                container.innerHTML = `
-                    <div>
-                        <span style="color:#f59e0b;font-size:13px;">⚠ u2net 模型未下载</span>
-                        <button class="model-download-btn" onclick="downloadModel()" style="margin-left:12px;padding:4px 12px;font-size:12px;background:#3b82f6;color:#fff;border:none;border-radius:4px;cursor:pointer;">下载模型</button>
-                        ${details}
-                    </div>
-                `;
-            }
-        } catch(e) {
-            container.innerHTML = `<span style="color:#f59e0b;font-size:13px;">错误: ${e.message || String(e)}</span>`;
-        }
-    }
-
-    async function downloadModel() {
-        if (modelDownloading || !hasApi()) return;
-        const btn = document.querySelector(".model-download-btn");
-        if (btn) { btn.disabled = true; btn.textContent = "下载中..."; }
-        modelDownloading = true;
-        log("info", "开始下载 u2net 模型，请稍候...");
-        try {
-            const res = await window.pywebview.api.download_model();
-            if (res.ok) {
-                log("info", "模型下载完成，已保存到项目 models/ 目录");
-                checkModelStatus();
-            } else {
-                log("error", "下载失败: " + (res.error || "未知错误"));
-            }
-        } catch(e) {
-            log("error", "下载异常: " + e.message);
-        } finally {
-            modelDownloading = false;
-            if (btn) { btn.textContent = "下载模型"; }
-        }
-    }
-
     function updateMetrics(s) {
         $("metricSuccess").textContent = s.success_count || "0";
         $("metricFail").textContent = s.fail_count || "0";
@@ -2831,12 +2803,10 @@
                 const summaryText = summaryCounts.slice(0, 4).map(i => `${i.count} ${i.label}`).join(" / ");
                 sum.textContent = totalFiles > 0 ? `共 ${totalFiles} 个文件${summaryText ? `（${summaryText}）` : ""}` : `发现 ${secs.length} 个数据组`;
                 box.innerHTML = `<div class="preview-list">` + secs.map(sec => {
-                    // 默认仅显示数量统计
                     const counts = normalizeCounts(sec.counts || sec.counts_by_ext);
                     const cnts = counts.map(i => `<span class="tag tag-blue">${escapeHtml(i.label||'文件')}×${i.count||0}</span>`).join("");
-                    // 详细样本文件
                     const samples = sec.samples || sec.sample_files || [];
-                    const smps = samples.map(sa => `<span class="sample-file" title="${escapeAttr(sa)}">${escapeHtml(sa)}</span>`).join("");
+                    const smps = samples.map(sa => `<span class="sample-file" title="${escapeAttr(sa)}">${escapeHtml(truncatePath(sa))}</span>`).join("");
 
                     return `
                         <div class="preview-item">

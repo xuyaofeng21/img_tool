@@ -48,6 +48,9 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "default_backup_dir": "",
         "default_output_dir": "",
     },
+    "synthesize": {
+        "max_placement_per_material": 10,
+    },
 }
 
 
@@ -197,6 +200,15 @@ def _normalize_settings(data: Any) -> dict[str, Any]:
     default_backup_dir = _coerce_text(paths.get("default_backup_dir", ""), "paths.default_backup_dir")
     default_output_dir = _coerce_text(paths.get("default_output_dir", ""), "paths.default_output_dir")
 
+    synthesize_cfg = merged.get("synthesize", {})
+    if not isinstance(synthesize_cfg, dict):
+        synthesize_cfg = {}
+    max_placement_per_material = _coerce_int(
+        synthesize_cfg.get("max_placement_per_material", 10),
+        "synthesize.max_placement_per_material",
+        minimum=1, maximum=100,
+    )
+
     normalized = {
         "version": 1,
         "ui": {
@@ -233,6 +245,9 @@ def _normalize_settings(data: Any) -> dict[str, Any]:
         "paths": {
             "default_backup_dir": default_backup_dir,
             "default_output_dir": default_output_dir,
+        },
+        "synthesize": {
+            "max_placement_per_material": max_placement_per_material,
         },
     }
 

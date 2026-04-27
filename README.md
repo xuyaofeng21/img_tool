@@ -1,88 +1,102 @@
-# ImgToolbox — 个人图片批量处理工具箱
+# ImgToolbox — 离线图片批量处理工具箱
 
-离线桌面工具，基于 `pywebview + 本地 HTML/CSS/JS + Python`，封装 `script/` 下脚本能力，面向 Windows 本地批处理场景。
+基于 `pywebview + Python + HTML/CSS/JS` 的桌面工具，面向 Windows/Linux 本地图片批处理场景。
 
-### v1.1.0 更新（2026-04-23）
+当前版本：**v1.2.0**
 
-**手动合成标注模式：**
-- 全新的手动合成模式 — 用户在画布上点击放置源物体，实时预览合成效果
-- 每张背景图最多放置 3 个源物体，支持多张背景图批量合成
-- 放置后可拖动调整位置，鼠标悬停高亮轮廓
-- 滚轮/滑块缩放（0.2x ~ 3.0x），预览与合成结果完全一致
-- 同一素材只能放置一次，撤销后自动恢复选中
-- 键盘 A/D 快速切换背景图
-- 素材库支持折叠收起
+---
 
-**合成标注（synthesize）核心改进：**
-- 预览图复用执行缓存机制 — `get_object_preview` 调用 `_get_or_create_object_cache`，确保画布预览与最终合成大小一致
-- 手动合成批量执行 — 新增 `synthesize_manual_run` 后端任务，一次处理所有已放置背景图
+## v1.2.0 更新（2026-04-27）
 
-### v1.0.4 更新（2026-04-16）
+**性能与稳定性：**
+- 重命名 `in_place` 模式提速：去掉暂存目录复制→移动流水线，直接 `os.rename()` 原地操作
+- JSON 路径修复简化：移除 `另存输出` 模式，只保留直接修改源文件，前端默认选中覆盖源文件
+- JSON 路径修复弹窗 BUG 修复：`multiprocessing.Pool` 改为 `ThreadPoolExecutor`，不再弹出多个控制台窗口
+- 日志系统：双文件日志（`task.log` + `system.log`），记录任务全流程、异常堆栈和应用启停事件
 
-**多样性筛图（select_diverse）核心改进：**
-- 原地修改模式改为**剪切移动**而非复制 — 选中图片从源目录移到输出目录，源目录只保留未选中的重复照片
-- 输入格式扩展 — 支持 JPG、PNG、BMP、TIFF、GIF、WebP 等所有常见图片格式，不再限于 PNG
-- "保留数量"改名为"**挑选数量**"，语义更清晰
-- 输出目录路径在原地修改模式下也可选 — 可以指定移动目标目录
-- 任务成功后自动刷新路径解析预览，实时显示目录最新文件数量
+**手动合成标注修复：**
+- 修复合成标注偏差问题：手动模式直接应用源 JSON 的 labelme 多边形标注，跳过 rembg 重新计算
+- 修复切换到手动合成时输出目录路径字段不显示的问题
 
-**标签排序（reorder_labels）限制调整：**
-- 禁用"另存输出"模式，强制使用原地修改 — 操作直接生效，无需额外输出目录
+**素材库增强：**
+- 同素材全局放置次数限制（默认 10 次），跨背景图统计，素材卡片显示 `已用/上限` 徽章
+- 达到上限的素材自动变灰禁用，切换源目录自动重置计数
+- 阈值可通过设置配置
+
+**功能调整：**
+- 系统合成模式暂时置灰，当前仅开放手动合成
+- 抠图模型检测 UI 已移除
 
 **UX 改进：**
-- 终端日志支持选中文本复制 — 添加 `user-select: text`，解决日志无法复制的问题
+- 路径解析预览默认展开文件详情，去掉折叠/展开交互
+- 日志过滤 pywebview 框架内部噪音，system.log 清爽可读
 
-### 功能模块
+---
 
-| 界面任务名 | 对应脚本 | 说明 |
-|------|------|------|
-| `bgr2rgb` | `script/bgr2rgb.py` | 颜色通道转换（RGB <-> BGR） |
-| `rename2` | `script/rename2.py` | 图片 + JSON 批量重命名 |
-| `select_diverse` | `script/select_diverse.py` | 多样性筛图（pHash） |
-| `json_path` | `script/更改json路径.py` | JSON 的 `imagePath` 批量修复 |
-| `reorder_labels` | `script/reorder_labels.py` | JSON 标注顺序重排 |
-| `synthesize` | `script/synthesize.py` | 智能合成标注（物体 + 背景图 + LabelMe JSON） |
+## 功能模块
 
-### 执行模式
+| 界面任务名 | 说明 |
+|------|------|
+| `bgr2rgb` | 颜色通道转换（RGB ↔ BGR） |
+| `rename2` | 图片 + JSON 批量重命名 |
+| `select_diverse` | 多样性筛图（pHash 去重） |
+| `json_path` | JSON 的 `imagePath` 字段批量修复 |
+| `reorder_labels` | JSON 标注顺序重排（station → 底层） |
+| `synthesize` | 合成标注（手动模式：点击放置 + 拖动调整） |
 
-1. `安全复制`（默认）：只写输出目录，不改原目录。
-2. `原地修改`：直接修改源文件，执行前会有确认提示，请注意备份。
+---
 
-### 合成标注（synthesize）规则
+## 执行模式
 
-将带标注的物体合成到背景图中，自动更新 LabelMe JSON。支持两种模式：
+| 模式 | 说明 |
+|------|------|
+| 安全复制（默认） | 结果写入输出目录，不改原文件 |
+| 原地修改 | 直接修改源文件，执行前弹出确认提示 |
 
-#### 系统合成
-- 自动抠图：rembg（u2net / u2net_small）或 LabelMe 多边形抠图
-- 智能放置：地面区域优先，障碍物避让
-- 随机增强：旋转 + 水平镜像
-- 自动标注：生成多边形标注
+---
 
-#### 手动合成
-- 用户在画布上点击放置源物体，每张背景图最多 3 个
-- 放置后可拖动调整位置，滚轮/滑块缩放大小（0.2x ~ 3.0x）
-- 预览与合成结果完全一致（复用抠图缓存机制）
-- 键盘 A/D 切换背景图，多张背景图批量执行
-- 同一素材只能放置一次
+## 合成标注（synthesize）
 
-#### 源图目录规则
-- 源图全部带 JSON 且唯一 label：自动带出`源标注标签`和`合成后标注标签`
-- 源图全部不带 JSON：必须填写`合成后标注标签`，`源标注标签`不可用
-- 目录混合（部分带 JSON）或 JSON label 不一致：直接阻断并提示整理目录
+将带标注的物体合成到背景图中，自动更新 LabelMe JSON。
 
-### 当前限制
+### 手动合成（当前唯一开放模式）
 
-- `系统设置`按钮当前为占位入口，尚未开放完整配置能力。
+- 用户在画布上点击放置源物体
+- 放置后可拖动调整位置，滚轮/滑块缩放（0.2x ~ 3.0x）
+- 每张背景图最多 3 个物体
+- 键盘 A/D 快速切换背景图，支持多张背景图批量执行
+- 标注直接应用源 JSON 的 labelme 多边形坐标，经过平移/缩放变换，确保严丝合缝
+- 素材库显示每个素材的全局使用次数，同一素材在所有背景图中累计不超过配置上限
 
-### 推荐环境（uv）
+### 源图目录规则
+
+- 源图全部带 JSON 且 label 一致：自动识别标注标签
+- 源图全部不带 JSON：需手动填写合成后标注标签
+- 目录混合或 label 不一致：直接阻断并提示整理目录
+
+---
+
+## 日志
+
+应用启动时自动在以下位置创建日志文件：
+
+| 文件 | 内容 |
+|------|------|
+| `logs/task.log` | 任务执行全流程日志、异常堆栈 |
+| `logs/system.log` | 应用启停事件、未捕获异常 |
+
+- 开发环境：`项目根目录/logs/`
+- 打包后：`可执行文件同级目录/logs/`
+- 每次启动覆盖旧日志，不留历史冗余
+
+---
+
+## 开发环境
+
+### 推荐（uv）
 
 ```bash
 uv sync --dev
-```
-
-### 启动
-
-```bash
 uv run python main.py
 ```
 
@@ -92,7 +106,7 @@ uv run python main.py
 uv run python -m pytest -q
 ```
 
-### pip 兜底方案（无 uv 时）
+### pip 兜底方案
 
 ```bash
 python -m venv .venv
@@ -102,22 +116,32 @@ python -m venv .venv
 .\.venv\Scripts\python.exe -m pytest -q
 ```
 
-### 打包 EXE（Windows）
+---
+
+## 打包
+
+### Windows EXE
 
 ```bash
-.\.venv\Scripts\pyinstaller --noconfirm --clean --windowed --name ImgToolbox --add-data "ui;ui" main.py
-.\.venv\Scripts\pyinstaller --noconfirm --clean --windowed --onefile --name ImgToolbox --add-data "ui;ui" main.py
+.\.venv\Scripts\pyinstaller --noconfirm --clean --windowed --name ImgToolbox --add-data "ui;ui" --add-data "models;models" --add-data "script;script" main.py
 ```
 
-### 目录结构
+### Linux AppImage
+
+项目使用 GitHub Actions 双平台自动构建（`.github/workflows/build.yml`），基于 `linuxdeploy-plugin-gtk` 打包 GTK 依赖。
+
+---
+
+## 目录结构
 
 ```
 img_tool/
 ├─ app/
 │  ├─ __init__.py
 │  ├─ bridge.py          # pywebview API 桥接层
+│  ├─ logger.py           # 日志模块（task.log + system.log）
 │  ├─ settings_store.py  # 设置持久化
-│  ├─ tasks.py           # 任务调度与日志轮询
+│  ├─ tasks.py           # 任务调度与日志
 │  └─ wrappers.py        # 各任务执行逻辑
 ├─ script/
 │  ├─ bgr2rgb.py
@@ -135,9 +159,22 @@ img_tool/
 │  ├─ test_tasks.py
 │  └─ test_wrappers.py
 ├─ ui/
-│  └─ new.html           # 单文件前端（HTML/CSS/JS）
+│  └─ new.html           # 单文件前端（HTML/CSS/JS ~3400 行）
 ├─ models/
-│  └─ u2net.onnx         # rembg 模型（需单独下载）
+│  └─ u2net.onnx         # rembg 模型（需手动下载）
+├─ logs/                  # 运行时生成
+│  ├─ task.log
+│  └─ system.log
 ├─ pyproject.toml
+├─ README.md
 └─ main.py
 ```
+
+---
+
+## 技术栈
+
+- **后端**：Python 3.12+ / pywebview / shapely / rembg / OpenCV
+- **前端**：Vanilla HTML/CSS/JS（单文件 ~3400 行），无框架
+- **构建**：PyInstaller (Windows) / linuxdeploy (Linux AppImage)
+- **CI/CD**：GitHub Actions 双平台自动构建

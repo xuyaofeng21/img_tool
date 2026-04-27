@@ -17,6 +17,7 @@ else:
     _WEBVIEW_IMPORT_ERROR = None
 
 from app.bridge import ApiBridge
+from app.logger import setup_logging
 from app.tasks import TaskManager
 
 
@@ -36,6 +37,8 @@ def _resolve_ui_file() -> Path:
 def main() -> None:
     if webview is None:
         raise RuntimeError("未安装或无法加载 pywebview，请先安装依赖后再运行。") from _WEBVIEW_IMPORT_ERROR
+
+    setup_logging()
 
     task_manager = TaskManager()
     bridge = ApiBridge(task_manager)

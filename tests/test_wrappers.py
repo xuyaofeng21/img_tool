@@ -38,33 +38,24 @@ def test_select_diverse_known_nameerror_fallback(monkeypatch, tmp_path: Path):
     assert len(list(output_dir.glob("*.png"))) == result["success_count"]
 
 
-def test_json_path_runs_via_subprocess(monkeypatch, tmp_path: Path):
+def test_json_path_in_place_mode(monkeypatch, tmp_path: Path):
+    """json_path 强制 in_place 模式，即使传 safe_copy 也自动切换"""
     json_dir = tmp_path / "json"
     image_dir = tmp_path / "image"
-    output_dir = tmp_path / "output"
     json_dir.mkdir()
     image_dir.mkdir()
-    (json_dir / "a.json").write_text('{"imagePath":"old"}', encoding="utf-8")
-
-    calls: list[dict] = []
-
-    class DummyCompleted:
-        def __init__(self):
-            self.returncode = 0
-            self.stdout = "钉?ok\n"
-            self.stderr = ""
-
-    def fake_run(cmd, **kwargs):
-        calls.append({"cmd": cmd, "kwargs": kwargs})
-        return DummyCompleted()
-
-    monkeypatch.setattr(wrappers.subprocess, "run", fake_run)
+    # 创建 JSON 和对应图片
+    (json_dir / "a.json").write_text(
+        '{"imagePath": "old.png", "shapes": []}', encoding="utf-8"
+    )
+    from PIL import Image
+    Image.new("RGB", (10, 10)).save(image_dir / "a.png")
 
     result = wrappers.execute_task(
         {
             "task": "json_path",
-            "mode": "safe_copy",
-            "paths": {"json_dir": str(json_dir), "image_dir": str(image_dir), "output_dir": str(output_dir)},
+            "mode": "safe_copy",  # 即使传 safe_copy，也会自动切为 in_place
+            "paths": {"json_dir": str(json_dir), "image_dir": str(image_dir)},
             "params": {},
             "backup_dir": "",
         },
@@ -72,12 +63,7 @@ def test_json_path_runs_via_subprocess(monkeypatch, tmp_path: Path):
     )
 
     assert result["status"] == "success"
-    assert result["output_path"] == str(output_dir.resolve())
-    assert (output_dir / "a.json").exists()
-    assert calls
-    env = calls[0]["kwargs"]["env"]
-    assert env["PYTHONIOENCODING"] == "utf-8"
-    assert env["PYTHONUTF8"] == "1"
+    assert result["output_path"] == str(json_dir.resolve())
 
 
 @pytest.mark.parametrize(
@@ -225,47 +211,34 @@ def test_rename2_safe_copy_and_in_place_backup_contract(tmp_path: Path):
     assert Path(in_place["backup_path"]).exists()
 
 
-def test_json_path_safe_copy_and_in_place_backup_contract(monkeypatch, tmp_path: Path):
+def test_json_path_always_in_place_backup_contract(tmp_path: Path):
+    """json_path 强制 in_place 模式，safe_copy 自动切换，backup 正常工作"""
     json_dir = tmp_path / "json_dir"
     image_dir = tmp_path / "image_dir"
-    out_dir = tmp_path / "json_out"
     backup_dir = tmp_path / "json_backup"
     json_dir.mkdir()
     image_dir.mkdir()
-    (json_dir / "a.json").write_text('{"imagePath":"old"}', encoding="utf-8")
-    (image_dir / "a.png").write_bytes(b"png")
+    (json_dir / "a.json").write_text(
+        '{"imagePath": "old.png", "shapes": []}', encoding="utf-8"
+    )
+    from PIL import Image
+    Image.new("RGB", (10, 10)).save(image_dir / "a.png")
 
-    calls: list[dict[str, object]] = []
-
-    class DummyCompleted:
-        def __init__(self):
-            self.returncode = 0
-            self.stdout = "钉?ok\n"
-            self.stderr = ""
-
-    def fake_run(cmd, **kwargs):
-        calls.append({"cmd": cmd, "kwargs": kwargs})
-        return DummyCompleted()
-
-    monkeypatch.setattr(wrappers.subprocess, "run", fake_run)
-
-    safe_copy = wrappers.execute_task(
+    # safe_copy 模式会自动切换为 in_place
+    safe_copy_result = wrappers.execute_task(
         {
             "task": "json_path",
             "mode": "safe_copy",
-            "paths": {"json_dir": str(json_dir), "image_dir": str(image_dir), "output_dir": str(out_dir)},
+            "paths": {"json_dir": str(json_dir), "image_dir": str(image_dir)},
             "params": {},
             "backup_dir": "",
         },
         lambda *_: None,
     )
+    assert safe_copy_result["status"] == "success"
+    assert Path(safe_copy_result["output_path"]).resolve() == json_dir.resolve()
 
-    assert safe_copy["status"] == "success"
-    assert Path(safe_copy["output_path"]).resolve() == out_dir.resolve()
-    assert calls
-    assert (out_dir / "a.json").exists()
-
-    calls.clear()
+    # in_place 模式 + backup
     in_place = wrappers.execute_task(
         {
             "task": "json_path",
@@ -276,7 +249,6 @@ def test_json_path_safe_copy_and_in_place_backup_contract(monkeypatch, tmp_path:
         },
         lambda *_: None,
     )
-
     assert in_place["status"] == "success"
     assert Path(in_place["output_path"]).resolve() == json_dir.resolve()
     assert in_place["backup_path"]
@@ -320,38 +292,30 @@ def test_rename2_file_mode_supports_multiple_files(monkeypatch, tmp_path: Path):
     assert (out_dir / "new_b.png").exists()
 
 
-def test_json_path_file_mode_supports_multiple_files(monkeypatch, tmp_path: Path):
+def test_json_path_file_mode_supports_multiple_files(tmp_path: Path):
+    """json_path file 模式支持多个 JSON 文件"""
     json_dir = tmp_path / "json_file_mode"
     image_dir = tmp_path / "image_file_mode"
-    output_dir = tmp_path / "json_file_mode_out"
     json_dir.mkdir()
     image_dir.mkdir()
-    (json_dir / "a.json").write_text('{"imagePath":"old_a"}', encoding="utf-8")
-    (json_dir / "b.json").write_text('{"imagePath":"old_b"}', encoding="utf-8")
-
-    class DummyCompleted:
-        def __init__(self):
-            self.returncode = 0
-            self.stdout = "ok\n"
-            self.stderr = ""
-
-    def fake_run(cmd, **kwargs):
-        target_json_dir = Path(cmd[2])
-        for file_path in target_json_dir.glob("*.json"):
-            file_path.write_text('{"imagePath":"new"}', encoding="utf-8")
-        return DummyCompleted()
-
-    monkeypatch.setattr(wrappers.subprocess, "run", fake_run)
+    (json_dir / "a.json").write_text(
+        '{"imagePath": "a.png", "shapes": []}', encoding="utf-8"
+    )
+    (json_dir / "b.json").write_text(
+        '{"imagePath": "b.png", "shapes": []}', encoding="utf-8"
+    )
+    from PIL import Image
+    Image.new("RGB", (10, 10)).save(image_dir / "a.png")
+    Image.new("RGB", (10, 10)).save(image_dir / "b.png")
 
     result = wrappers.execute_task(
         {
             "task": "json_path",
-            "mode": "safe_copy",
+            "mode": "in_place",
             "paths": {
                 "input_mode": "file",
                 "input_path": f"{json_dir / 'a.json'};{json_dir / 'b.json'}",
                 "image_dir": str(image_dir),
-                "output_dir": str(output_dir),
             },
             "params": {},
             "backup_dir": "",
@@ -360,20 +324,16 @@ def test_json_path_file_mode_supports_multiple_files(monkeypatch, tmp_path: Path
     )
 
     assert result["status"] == "success"
-    assert (output_dir / "a.json").exists()
-    assert (output_dir / "b.json").exists()
-    assert "new" in (output_dir / "a.json").read_text(encoding="utf-8")
-    assert "new" in (output_dir / "b.json").read_text(encoding="utf-8")
+    # in_place 模式下，输出在原 json_dir
+    assert Path(result["output_path"]).resolve() == json_dir.resolve()
 
 
-def test_select_diverse_file_mode_rejects_non_png(monkeypatch, tmp_path: Path):
-    src_dir = tmp_path / "select_non_png"
-    out_dir = tmp_path / "select_non_png_out"
+def test_select_diverse_file_mode_rejects_non_image(monkeypatch, tmp_path: Path):
+    """select_diverse file 模式下非图片文件应报错"""
+    src_dir = tmp_path / "select_non_image"
+    out_dir = tmp_path / "select_non_image_out"
     src_dir.mkdir()
-    Image.new("RGB", (8, 8), (100, 100, 100)).save(src_dir / "a.jpg")
-
-    fake_module = types.SimpleNamespace(select_diverse_images=lambda *args, **kwargs: None)
-    monkeypatch.setattr(wrappers, "_load_script_module", lambda *args, **kwargs: fake_module)
+    (src_dir / "a.txt").write_text("not an image", encoding="utf-8")
 
     with pytest.raises(ValueError):
         wrappers.execute_task(
@@ -382,7 +342,7 @@ def test_select_diverse_file_mode_rejects_non_png(monkeypatch, tmp_path: Path):
                 "mode": "safe_copy",
                 "paths": {
                     "input_mode": "file",
-                    "input_file": str(src_dir / "a.jpg"),
+                    "input_file": str(src_dir / "a.txt"),
                     "output_dir": str(out_dir),
                 },
                 "params": {"select_ratio": 0.5, "hamming_thresh": 10},

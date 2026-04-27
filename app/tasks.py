@@ -7,6 +7,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
+from .logger import get_task_logger
 from .wrappers import execute_task
 
 
@@ -86,8 +87,20 @@ class TaskManager:
                 record["started_at"] = _now()
 
         self._append_log(task_id, "info", "任务已启动")
+        task_logger = get_task_logger()
+        task_name = str(payload.get("task", "unknown"))
+        task_logger.info("任务开始: task=%s, id=%s", task_name, task_id)
         try:
-            result = execute_task(payload, lambda level, msg: self._append_log(task_id, level, msg))
+            # 双写日志：同时写入内存（前端显示）和 task.log 文件
+            _level_map = {"warn": "warning"}  # 前端用 warn，Python logging 用 warning
+            def file_log(level: str, msg: str) -> None:
+                self._append_log(task_id, level, msg)
+                py_level = _level_map.get(level, level)
+                log_method = getattr(task_logger, py_level, None)
+                if log_method:
+                    log_method("[%s] %s", task_name, msg)
+
+            result = execute_task(payload, file_log)
             with self._lock:
                 record = self._tasks.get(task_id)
                 if record:
@@ -97,8 +110,10 @@ class TaskManager:
                     record["result"]["logs"] = list(record["logs"])
                     record["ended_at"] = _now()
             self._append_log(task_id, "info", "任务执行完成")
+            task_logger.info("任务完成: task=%s, id=%s", task_name, task_id)
         except KeyboardInterrupt:
             self._append_log(task_id, "warn", "任务已被用户取消")
+            task_logger.warning("任务取消: task=%s, id=%s", task_name, task_id)
             with self._lock:
                 record = self._tasks.get(task_id)
                 if record:
@@ -108,8 +123,11 @@ class TaskManager:
                     record["ended_at"] = _now()
         except Exception as exc:
             err_msg = str(exc)
+            tb = traceback.format_exc()
             self._append_log(task_id, "error", err_msg)
-            self._append_log(task_id, "error", traceback.format_exc())
+            self._append_log(task_id, "error", tb)
+            task_logger.error("任务失败: task=%s, id=%s, error=%s", task_name, task_id, err_msg)
+            task_logger.error("异常堆栈:\n%s", tb)
             with self._lock:
                 record = self._tasks.get(task_id)
                 if record:
