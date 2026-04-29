@@ -138,7 +138,7 @@ python -m venv .venv
 ### Windows EXE
 
 ```bash
-.\.venv\Scripts\pyinstaller --noconfirm --clean --windowed --name ImgToolbox --add-data "ui;ui" --add-data "models;models" --add-data "script;script" main.py
+.\.venv\Scripts\pyinstaller --noconfirm --clean --windowed --name ImgToolbox --add-data "ui;ui" --add-data "script;script" main.py
 ```
 
 ### Linux AppImage
