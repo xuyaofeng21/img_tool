@@ -20,6 +20,8 @@ from .settings_store import DEFAULT_SETTINGS_STORE, SettingsStore
 from .tasks import TaskManager
 from .wrappers import inspect_synthesize_source_info, preview_path_info
 
+import logging as _logging
+_log = _logging.getLogger("system")
 
 def _project_models_dir() -> Path:
     """Get models directory.
@@ -89,9 +91,21 @@ class ApiBridge:
         self.task_manager = task_manager
         self.window = None
         self.settings_store: SettingsStore = DEFAULT_SETTINGS_STORE
+        _log.info("ApiBridge 初始化完成")
 
     def set_window(self, window: Any) -> None:
         self.window = window
+        _log.info("set_window: 窗口已绑定, title=%s", getattr(window, 'title', 'N/A'))
+
+    def log_frontend_message(self, message: str, level: str = "info") -> None:
+        """前端 JS 调用：将前端日志写入后端 system.log。
+
+        前端页面加载完成、JS 错误等关键事件通过此接口统一记录到后端日志，
+        便于诊断打包后 UI 无法渲染等问题。朋友出问题时只需发 logs/system.log 即可。
+        """
+        from .logger import log_frontend
+        log_frontend(message, level)
+        return {"ok": True}
 
     def run_task(self, payload: dict[str, Any]) -> dict[str, Any]:
         try:

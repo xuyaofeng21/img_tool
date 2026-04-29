@@ -31,7 +31,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "recursive": False,
         "sample_limit": 20,
         "debounce_ms": 300,
-        "expand_details_by_default": False,
+        "expand_details_by_default": True,
     },
     "logging": {
         "level": "info",
@@ -165,7 +165,7 @@ def _normalize_settings(data: Any) -> dict[str, Any]:
     sample_limit = _coerce_int(preview.get("sample_limit", 20), "preview.sample_limit", minimum=1, maximum=300)
     debounce_ms = _coerce_int(preview.get("debounce_ms", 300), "preview.debounce_ms", minimum=100, maximum=3000)
     expand_details_by_default = _coerce_bool(
-        preview.get("expand_details_by_default", False), "preview.expand_details_by_default"
+        preview.get("expand_details_by_default", True), "preview.expand_details_by_default"
     )
 
     log_level = _coerce_text(logging_cfg.get("level", "info"), "logging.level") or "info"

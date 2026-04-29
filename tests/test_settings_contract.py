@@ -23,7 +23,7 @@ def test_settings_api_contract_via_bridge(tmp_path: Path):
     assert current["settings"]["version"] == DEFAULT_SETTINGS["version"]
     assert current["settings"]["preview"]["sample_limit"] == DEFAULT_SETTINGS["preview"]["sample_limit"]
     assert current["settings"]["workflow"]["auto_open_output_after_success"] is False
-    assert current["settings"]["preview"]["expand_details_by_default"] is False
+    assert current["settings"]["preview"]["expand_details_by_default"] is True
     assert current["settings"]["paths"]["default_output_dir"] == ""
     assert current["settings"]["history"]["recent_paths"] == []
 

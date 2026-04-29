@@ -1,4 +1,4 @@
-﻿﻿<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
@@ -857,6 +857,65 @@
 </div>
 
 <script>
+    // ========== 前端日志上报工具 ==========
+    // 将前端关键事件写入后端 system.log，便于诊断打包后 UI 无法渲染的问题
+    //
+    // 关键时序：pywebview 在页面完全加载后才注入 window.pywebview.api，
+    // 所以 <script> 顶层代码执行时 api 还不存在，必须用队列缓存，等 api 就绪后回放。
+    var _pendingReports = [];
+    var _apiReady = false;
+
+    function _flushPendingReports() {
+        if (!_apiReady || _pendingReports.length === 0) return;
+        var pending = _pendingReports.slice();
+        _pendingReports = [];
+        pending.forEach(function(item) {
+            try {
+                window.pywebview.api.log_frontend_message(item.message, item.level);
+            } catch(_) {}
+        });
+    }
+
+    function _reportToBackend(message, level) {
+        var entry = { message: message, level: level || 'info' };
+        if (_apiReady) {
+            try {
+                window.pywebview.api.log_frontend_message(entry.message, entry.level);
+                return;
+            } catch(_) {
+                _apiReady = false; // api 可能断开
+            }
+        }
+        _pendingReports.push(entry);
+    }
+
+    // 监听 pywebview 的 ready 事件，回放队列
+    window.addEventListener('pywebviewready', function() {
+        _apiReady = true;
+        _reportToBackend('pywebviewready 事件触发，API 已注入', 'info');
+        _flushPendingReports();
+    });
+
+    // 兜底：如果 pywebviewready 未触发（某些版本不支持），延迟 1s 后轮询检查
+    setTimeout(function _checkApi() {
+        if (!_apiReady && window.pywebview && window.pywebview.api) {
+            _apiReady = true;
+            _reportToBackend('API 轮询检测到 pywebview.api 已就绪', 'info');
+            _flushPendingReports();
+        }
+        if (!_apiReady) setTimeout(_checkApi, 500);
+    }, 500);
+
+    // 全局 JS 错误捕获，自动写入后端日志
+    window.addEventListener('error', function(evt) {
+        _reportToBackend('JS错误: ' + (evt.message || evt) + ' @ ' + (evt.filename || '') + ':' + (evt.lineno || ''), 'error');
+    });
+    window.addEventListener('unhandledrejection', function(evt) {
+        _reportToBackend('未处理的Promise拒绝: ' + (evt.reason || evt), 'error');
+    });
+    // 页面加载最早标记
+    _reportToBackend('HTML已加载，JS开始执行', 'info');
+
     // ========== 业务配置定义 ==========
     const TASKS = {
         bgr2rgb: {
@@ -980,7 +1039,7 @@
     };
 
     const $ = id => document.getElementById(id);
-    const hasApi = () => Boolean(window.pywebview && window.pywebview.api);
+    const hasApi = () => Boolean(window.pywebview && window.pywebview.api) || _apiReady;
     const escapeHtml = val => String(val).replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&#39;");
     const escapeAttr = val => escapeHtml(val);
     const cssEscape = str => window.CSS && window.CSS.escape ? CSS.escape(str) : str;
@@ -2162,6 +2221,15 @@
         let _isDragging = false;  // 是否正在拖动
         let _isPlacing = false;   // 是否正在放置（防止重复点击）
 
+        // ===== 旋转状态 =====
+        let _rotatingIdx = -1;         // 正在旋转的 placement 索引
+        let _rotateInitialAngle = 0;   // mousedown 时的鼠标角度（度）
+        let _rotateInitialRotation = 0;// mousedown 时的旋转值
+        let _isRotating = false;       // 是否正在旋转
+
+        // ===== 选中状态（持久，不随鼠标消失） =====
+        let _selectedPlacementIdx = -1;
+
         // ===== 键盘 A/D 切换背景图 =====
         document.addEventListener('keydown', (e) => {
             if (state.running) return;
@@ -2190,17 +2258,73 @@
         }
 
         // ===== 绘制高亮轮廓 =====
-        function drawHighlight(placement) {
+        // mode: "hover" = 虚线边框（鼠标悬停提示）, "selected" = 实线边框 + 旋转手柄（点击选中后常驻）
+        function drawHighlight(placement, mode = "selected") {
             const canvas = $("manualCanvas");
             if (!canvas) return;
             const ctx = canvas.getContext("2d");
             const dp = getScaledDrawParams(placement);
+            const rotation = placement.rotation || 0;
+            const angleRad = rotation * Math.PI / 180;
+
             ctx.save();
-            ctx.strokeStyle = "#00ff00";
-            ctx.lineWidth = 2;
-            ctx.setLineDash([6, 3]);
-            ctx.strokeRect(dp.x, dp.y, dp.w, dp.h);
+            ctx.translate(placement.clickX, placement.clickY);
+            ctx.rotate(angleRad);
+
+            // 边框
+            ctx.strokeStyle = mode === "selected" ? "#00ccff" : "#00ff00";
+            ctx.lineWidth = mode === "selected" ? 2.5 : 1.5;
+            if (mode === "hover") {
+                ctx.setLineDash([6, 3]);
+            } else {
+                ctx.setLineDash([]);
+            }
+            ctx.strokeRect(-dp.w / 2, -dp.h / 2, dp.w, dp.h);
+
+            // 只在选中模式下显示旋转手柄
+            if (mode === "selected") {
+                const handleX = dp.w / 2;
+                const handleY = -dp.h / 2;
+                // 手柄外圈光晕
+                ctx.beginPath();
+                ctx.arc(handleX, handleY, 12, 0, Math.PI * 2);
+                ctx.fillStyle = "rgba(0, 204, 255, 0.25)";
+                ctx.fill();
+                // 手柄本体
+                ctx.beginPath();
+                ctx.arc(handleX, handleY, 7, 0, Math.PI * 2);
+                ctx.fillStyle = "#00ccff";
+                ctx.fill();
+                ctx.strokeStyle = "#fff";
+                ctx.lineWidth = 1.5;
+                ctx.setLineDash([]);
+                ctx.stroke();
+                // 手柄内图标（简化十字箭头）
+                ctx.beginPath();
+                ctx.moveTo(handleX - 3, handleY);
+                ctx.lineTo(handleX + 3, handleY);
+                ctx.moveTo(handleX, handleY - 3);
+                ctx.lineTo(handleX, handleY + 3);
+                ctx.strokeStyle = "#fff";
+                ctx.lineWidth = 1.5;
+                ctx.stroke();
+            }
+
             ctx.restore();
+        }
+
+        // ===== 获取旋转手柄在 canvas 上的位置 =====
+        function getRotationHandlePos(placement) {
+            const dp = getScaledDrawParams(placement);
+            const halfW = dp.w / 2;
+            const halfH = dp.h / 2;
+            const angleRad = (placement.rotation || 0) * Math.PI / 180;
+            const cosA = Math.cos(angleRad);
+            const sinA = Math.sin(angleRad);
+            return {
+                x: placement.clickX + halfW * cosA + halfH * sinA,
+                y: placement.clickY + halfW * sinA - halfH * cosA
+            };
         }
 
         // ===== 鼠标按下 =====
@@ -2215,19 +2339,42 @@
 
             _mouseDownPos = { cx, cy, clientX: e.clientX, clientY: e.clientY };
             _isDragging = false;
+            _isRotating = false;
+
+            // 优先检测旋转手柄（需要先有选中）
+            if (_selectedPlacementIdx >= 0) {
+                const p = sm.placements[_selectedPlacementIdx];
+                const handlePos = getRotationHandlePos(p);
+                const dist = Math.sqrt((cx - handlePos.x) ** 2 + (cy - handlePos.y) ** 2);
+                if (dist <= 14) {
+                    _rotatingIdx = _selectedPlacementIdx;
+                    _isRotating = true;
+                    _rotateInitialAngle = Math.atan2(cy - p.clickY, cx - p.clickX) * 180 / Math.PI;
+                    _rotateInitialRotation = p.rotation || 0;
+                    e.preventDefault();
+                    return;
+                }
+            }
 
             // 检测是否点中了已放置的物体
             const hitIdx = hitTestPlacement(cx, cy);
             if (hitIdx >= 0) {
+                // 点击物体：选中 + 准备拖动
+                _selectedPlacementIdx = hitIdx;
                 _dragIdx = hitIdx;
                 const p = sm.placements[hitIdx];
                 _dragOffsetX = cx - p.clickX;
                 _dragOffsetY = cy - p.clickY;
+                redrawPlacements();
                 e.preventDefault();
+            } else {
+                // 点击空白区域：取消选中
+                _selectedPlacementIdx = -1;
+                redrawPlacements();
             }
         };
 
-        // ===== 鼠标移动：跟随预览 + 悬停高亮 + 拖动 =====
+        // ===== 鼠标移动：跟随预览 + 悬停高亮 + 拖动 + 旋转 =====
         canvas.onmousemove = (e) => {
             const sm = state.synthesizeManual;
             const rect = canvas.getBoundingClientRect();
@@ -2235,6 +2382,19 @@
             const scaleY = canvas.height / rect.height;
             const cx = (e.clientX - rect.left) * scaleX;
             const cy = (e.clientY - rect.top) * scaleY;
+
+            // 旋转模式
+            if (_isRotating && _rotatingIdx >= 0) {
+                const p = sm.placements[_rotatingIdx];
+                const currentAngle = Math.atan2(cy - p.clickY, cx - p.clickX) * 180 / Math.PI;
+                let delta = currentAngle - _rotateInitialAngle;
+                if (delta > 180) delta -= 360;
+                if (delta < -180) delta += 360;
+                p.rotation = Math.round((_rotateInitialRotation + delta) % 360);
+                if (p.rotation < 0) p.rotation += 360;
+                redrawPlacements();
+                return;
+            }
 
             // 拖动模式
             if (_dragIdx >= 0 && _mouseDownPos) {
@@ -2245,7 +2405,6 @@
                     placement.clickX = cx - _dragOffsetX;
                     placement.clickY = cy - _dragOffsetY;
                     redrawPlacements();
-                    drawHighlight(placement);
                     renderPlacedList();
                 }
                 return;
@@ -2262,12 +2421,31 @@
             if (hitIdx !== _hoveredPlacementIdx) {
                 _hoveredPlacementIdx = hitIdx;
                 redrawPlacements();
-                if (hitIdx >= 0) {
-                    drawHighlight(sm.placements[hitIdx]);
-                    canvas.style.cursor = "move";
+                // 选中态常驻
+                if (_selectedPlacementIdx >= 0 && _selectedPlacementIdx < sm.placements.length) {
+                    drawHighlight(sm.placements[_selectedPlacementIdx], "selected");
+                }
+                // hover 态作为辅助提示（与选中不同时显示）
+                if (hitIdx >= 0 && hitIdx !== _selectedPlacementIdx) {
+                    drawHighlight(sm.placements[hitIdx], "hover");
+                    canvas.style.cursor = "pointer";
+                } else if (hitIdx >= 0) {
+                    // 悬停在已选中的物体上
+                    const p = sm.placements[hitIdx];
+                    const handlePos = getRotationHandlePos(p);
+                    const dist = Math.sqrt((cx - handlePos.x) ** 2 + (cy - handlePos.y) ** 2);
+                    canvas.style.cursor = dist <= 14 ? "grab" : "move";
                 } else {
                     canvas.style.cursor = "crosshair";
                 }
+            }
+
+            // 悬停在已选中物体上时，持续更新光标（处理未变化的情况）
+            if (hitIdx >= 0 && hitIdx === _selectedPlacementIdx) {
+                const p = sm.placements[hitIdx];
+                const handlePos = getRotationHandlePos(p);
+                const dist = Math.sqrt((cx - handlePos.x) ** 2 + (cy - handlePos.y) ** 2);
+                canvas.style.cursor = dist <= 14 ? "grab" : "move";
             }
         };
 
@@ -2280,6 +2458,12 @@
                 _isDragging = false;
                 _mouseDownPos = null;
             }
+            if (_isRotating) {
+                // 旋转中离开画布，结束旋转
+                _rotatingIdx = -1;
+                _isRotating = false;
+                _mouseDownPos = null;
+            }
             if (sm.selectedSource && sm.placedCount < MAX_PLACEMENTS_PER_BG && _previewImg) {
                 restoreBackgroundImage();
             }
@@ -2289,10 +2473,18 @@
             }
         };
 
-        // ===== 鼠标释放：放置或结束拖动 =====
+        // ===== 鼠标释放：放置或结束拖动/旋转 =====
         canvas.onmouseup = async (e) => {
             if (e.button !== 0) return;
             const sm = state.synthesizeManual;
+
+            // 结束旋转
+            if (_isRotating) {
+                _rotatingIdx = -1;
+                _isRotating = false;
+                _mouseDownPos = null;
+                return;
+            }
 
             // 如果正在拖动，结束拖动
             if (_isDragging && _dragIdx >= 0) {
@@ -2378,7 +2570,8 @@
                             imageHeight,
                             croppedPreview: result.image,
                             sourceIndex: placedCount,
-                            scale: 1.0
+                            scale: 1.0,
+                            rotation: 0
                         };
                         state.synthesizeManual.placements.push(placement);
                         state.synthesizeManual.undoStack.push(state.synthesizeManual.placements.length - 1);
@@ -2415,10 +2608,11 @@
             }
         };
 
-        // ===== 滚轮缩放 =====
+        // ===== 滚轮缩放（对选中物体操作） =====
         canvas.onwheel = (e) => {
             const sm = state.synthesizeManual;
-            const idx = _hoveredPlacementIdx;
+            // 优先使用选中的物体，否则使用悬停的物体
+            const idx = _selectedPlacementIdx >= 0 ? _selectedPlacementIdx : _hoveredPlacementIdx;
             if (idx < 0 || idx >= sm.placements.length) return;
             e.preventDefault();
             const placement = sm.placements[idx];
@@ -2426,7 +2620,6 @@
             const newScale = Math.max(0.2, Math.min(3.0, (placement.scale || 1.0) + delta));
             placement.scale = Math.round(newScale * 10) / 10;
             redrawPlacements();
-            drawHighlight(placement);
             renderPlacedList();
         };
     }
@@ -2492,7 +2685,13 @@
             await new Promise(resolve => {
                 img.onload = () => {
                     const dp = getScaledDrawParams(p);
-                    ctx.drawImage(img, dp.x, dp.y, dp.w, dp.h);
+                    ctx.save();
+                    ctx.translate(p.clickX, p.clickY);
+                    if (p.rotation) {
+                        ctx.rotate(p.rotation * Math.PI / 180);
+                    }
+                    ctx.drawImage(img, -dp.w / 2, -dp.h / 2, dp.w, dp.h);
+                    ctx.restore();
                     resolve();
                 };
                 img.onerror = resolve;
@@ -2501,6 +2700,11 @@
         }
 
         renderPlacedList();
+
+        // 选中态常驻
+        if (_selectedPlacementIdx >= 0 && _selectedPlacementIdx < placements.length) {
+            drawHighlight(placements[_selectedPlacementIdx], "selected");
+        }
     }
 
     async function redrawManualCanvas() {
@@ -2517,13 +2721,24 @@
             await new Promise(resolve => {
                 img.onload = () => {
                     const dp = getScaledDrawParams(p);
-                    ctx.drawImage(img, dp.x, dp.y, dp.w, dp.h);
+                    ctx.save();
+                    ctx.translate(p.clickX, p.clickY);
+                    if (p.rotation) {
+                        ctx.rotate(p.rotation * Math.PI / 180);
+                    }
+                    ctx.drawImage(img, -dp.w / 2, -dp.h / 2, dp.w, dp.h);
+                    ctx.restore();
                     resolve();
                 };
                 img.onerror = resolve;
                 // 如果有裁剪预览，使用它
                 img.src = p.croppedPreview ? "data:image/png;base64," + p.croppedPreview : p.sourcePath;
             });
+        }
+
+        // 选中态常驻
+        if (_selectedPlacementIdx >= 0 && _selectedPlacementIdx < placements.length) {
+            drawHighlight(placements[_selectedPlacementIdx], "selected");
         }
     }
 
@@ -2551,7 +2766,8 @@
                     source_path: p.sourcePath,
                     click_x: Math.round(p.clickX),
                     click_y: Math.round(p.clickY),
-                    scale: p.scale || 1.0
+                    scale: p.scale || 1.0,
+                    rotation: p.rotation || 0
                 }))
             }
         };
@@ -2869,7 +3085,8 @@
                                     source_path: pl.sourcePath,
                                     click_x: Math.round(pl.clickX),
                                     click_y: Math.round(pl.clickY),
-                                    scale: pl.scale || 1.0
+                                    scale: pl.scale || 1.0,
+                                    rotation: pl.rotation || 0
                                 }))
                             });
                         }
@@ -2987,8 +3204,12 @@
 
     // 初始化
     document.addEventListener("DOMContentLoaded", async () => {
+        _reportToBackend('DOMContentLoaded 事件触发，开始初始化前端', 'info');
+        try {
         initData();
+        _reportToBackend('initData 完成', 'info');
         await loadSettingsFromBackend();
+        _reportToBackend('loadSettingsFromBackend 完成', 'info');
 
         $("runBtn").addEventListener("click", runTask);
         $("btnClearLog").addEventListener("click", () => {
@@ -3035,8 +3256,14 @@
 
         applySettingsToRuntime();
         renderAll();
-        if(hasApi()) log("info", "后端引擎连接成功，准备就绪。");
-        else log("warn", "提示：当前在浏览器环境预览，未连接本地 Python 服务。");
+        _reportToBackend('前端初始化完成，renderAll已执行', 'info');
+        _reportToBackend('pywebview对象: ' + !!window.pywebview + ', api对象: ' + !!(window.pywebview && window.pywebview.api), 'info');
+        if(hasApi()) { log("info", "后端引擎连接成功，准备就绪。"); _reportToBackend('pywebview.api 可用，后端引擎连接成功', 'info'); }
+        else { log("warn", "提示：当前在浏览器环境预览，未连接本地 Python 服务。"); _reportToBackend('pywebview.api 不可用，可能未连接后端', 'warn'); }
+        } catch(e) {
+            _reportToBackend('DOMContentLoaded 初始化异常: ' + e.message + '\n' + (e.stack || ''), 'error');
+            console.error('DOMContentLoaded init error:', e);
+        }
     });
 </script>
 <script>
@@ -3058,7 +3285,7 @@
         return {
             ui: { theme: "system", density: "comfortable", accent: "blue", glass_strength: 72 },
             workflow: { default_mode: "safe_copy", default_input_mode: "folder", startup_task: "bgr2rgb", require_inplace_confirm: true, auto_open_output_after_success: false },
-            preview: { auto_refresh: true, recursive: false, sample_limit: 20, debounce_ms: 300, expand_details_by_default: false },
+            preview: { auto_refresh: true, recursive: false, sample_limit: 20, debounce_ms: 300, expand_details_by_default: true },
             history: { remember_paths: true, max_recent_paths: 10, recent_paths: [] },
             paths: { default_backup_dir: "", default_output_dir: "" },
         };

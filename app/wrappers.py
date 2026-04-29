@@ -2012,6 +2012,67 @@ def _apply_rotation_and_flip(object_img: "np.ndarray", max_angle: float, log: Lo
     return rotated
 
 
+def _rotate_object_and_polygon(
+    object_img: "np.ndarray",
+    polygon_points: list | None,
+    angle_deg: float,
+) -> tuple["np.ndarray", list | None, int, int]:
+    """按指定角度旋转物体图像和多边形标注点。
+
+    旋转后图像尺寸会变大（透明边角），新尺寸通过变换矩阵计算。
+    polygon_points 为 None 时只旋转图像（自动合成路径）。
+
+    Returns:
+        (rotated_img, rotated_polygon_points, new_w, new_h)
+    """
+    import math
+
+    if angle_deg == 0:
+        h, w = object_img.shape[:2]
+        return object_img, polygon_points, w, h
+
+    h, w = object_img.shape[:2]
+    center = (w // 2, h // 2)
+
+    # 旋转图像
+    matrix = cv2.getRotationMatrix2D(center, angle_deg, 1.0)
+    cos_val = np.abs(matrix[0, 0])
+    sin_val = np.abs(matrix[0, 1])
+    new_w = int((h * sin_val) + (w * cos_val))
+    new_h = int((h * cos_val) + (w * sin_val))
+    matrix[0, 2] += (new_w / 2) - center[0]
+    matrix[1, 2] += (new_h / 2) - center[1]
+
+    rotated = cv2.warpAffine(
+        object_img,
+        matrix,
+        (new_w, new_h),
+        flags=cv2.INTER_LINEAR,
+        borderMode=cv2.BORDER_CONSTANT,
+        borderValue=[0, 0, 0, 0],
+    )
+
+    # 旋转多边形点（必须与 cv2.warpAffine 的变换矩阵一致）
+    # warpAffine 对点 (x,y) 的变换为:
+    #   x' = cos*(x-cx) + sin*(y-cy) + new_w/2
+    #   y' = -sin*(x-cx) + cos*(y-cy) + new_h/2
+    rotated_points = None
+    if polygon_points is not None:
+        angle_rad = math.radians(angle_deg)
+        cos_a = math.cos(angle_rad)
+        sin_a = math.sin(angle_rad)
+        cx, cy = center
+        rotated_points = [
+            [
+                (p[0] - cx) * cos_a + (p[1] - cy) * sin_a + new_w / 2,
+                -(p[0] - cx) * sin_a + (p[1] - cy) * cos_a + new_h / 2,
+            ]
+            for p in polygon_points
+        ]
+
+    return rotated, rotated_points, new_w, new_h
+
+
 def _place_object_on_grass(
     object_img: "np.ndarray",
     bg_img: "np.ndarray",
@@ -2237,6 +2298,7 @@ def _run_synthesize_manual_save(
             "click_x": float(p.get("click_x", 0)),
             "click_y": float(p.get("click_y", 0)),
             "scale": float(p.get("scale", 1.0)),
+            "rotation": float(p.get("rotation", 0)),
         })
 
     if not processed_placements:
@@ -2314,6 +2376,7 @@ def _run_synthesize_manual_save(
         click_x = placement["click_x"]
         click_y = placement["click_y"]
         scale = float(placement.get("scale", 1.0))
+        rotation = float(placement.get("rotation", 0))
 
         # 获取抠图缓存（不旋转/镜像）
         obj_result = _get_or_create_object_cache(
@@ -2324,6 +2387,12 @@ def _run_synthesize_manual_save(
             continue
 
         object_img = obj_result
+
+        # 应用用户旋转（多边形从 alpha 通道后算，无需传 polygon_points）
+        if rotation != 0:
+            object_img, _, obj_w, obj_h = _rotate_object_and_polygon(
+                object_img, None, rotation
+            )
 
         # 应用用户缩放
         if scale != 1.0 and scale > 0:
@@ -2585,6 +2654,7 @@ def _run_synthesize_manual_run(
                     "click_x": float(p.get("click_x", 0)),
                     "click_y": float(p.get("click_y", 0)),
                     "scale": float(p.get("scale", 1.0)),
+                    "rotation": float(p.get("rotation", 0)),
                 })
 
             if not processed_placements:
@@ -2611,6 +2681,7 @@ def _run_synthesize_manual_run(
                 click_x = placement["click_x"]
                 click_y = placement["click_y"]
                 scale = float(placement.get("scale", 1.0))
+                rotation = float(placement.get("rotation", 0))
 
                 # 手动模式：直接读 JSON 标注，跳过 rembg（严格模式）
                 json_result = _load_source_with_json_annotation(
@@ -2620,6 +2691,12 @@ def _run_synthesize_manual_run(
                     continue  # 严格模式：无 JSON 标注则跳过
 
                 object_img, src_polygon_points, _src_label = json_result
+
+                # 应用用户旋转（图像 + 多边形点同步旋转）
+                if rotation != 0:
+                    object_img, src_polygon_points, obj_w, obj_h = _rotate_object_and_polygon(
+                        object_img, src_polygon_points, rotation
+                    )
 
                 # 应用用户缩放
                 if scale != 1.0 and scale > 0:
