@@ -167,6 +167,36 @@ class ApiBridge:
     def inspect_synthesize_source(self, payload: dict[str, Any]) -> dict[str, Any]:
         return inspect_synthesize_source_info(payload)
 
+    def detect_json_labels(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """扫描目录中 JSON 文件，返回所有不重复的 label 列表供前端选择"""
+        try:
+            folder_path = str(payload.get("folder_path", "")).strip()
+            if not folder_path:
+                return {"ok": True, "labels": []}
+
+            p = Path(folder_path).expanduser().resolve()
+            if not p.is_dir():
+                return {"ok": True, "labels": []}
+
+            all_labels: set[str] = set()
+            for json_file in sorted(p.glob("*.json")):
+                if not json_file.is_file():
+                    continue
+                try:
+                    with open(json_file, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                    for shape in data.get("shapes", []):
+                        if isinstance(shape, dict):
+                            label = str(shape.get("label", "")).strip()
+                            if label:
+                                all_labels.add(label)
+                except Exception:
+                    continue
+
+            return {"ok": True, "labels": sorted(all_labels)}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc), "labels": []}
+
     def list_directory(self, folder_path: str) -> dict[str, Any]:
         """列出目录中的文件，返回文件列表供前端使用"""
         try:
@@ -446,6 +476,48 @@ class ApiBridge:
             return {"ok": True, "removed_count": removed_count}
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
+
+    def get_bg_annotations(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """读取背景图的 labelme JSON 标注数据，返回多边形 shapes 供前端显示"""
+        try:
+            json_path = str(payload.get("json_path", "")).strip()
+            if not json_path:
+                return {"ok": True, "shapes": []}
+
+            p = Path(json_path).expanduser().resolve()
+            if not p.is_file():
+                return {"ok": True, "shapes": []}
+
+            with open(p, "r", encoding="utf-8") as f:
+                data = json.load(f)
+
+            shapes = []
+            image_width = data.get("imageWidth", 0)
+            image_height = data.get("imageHeight", 0)
+            for shape in data.get("shapes", []):
+                if not isinstance(shape, dict):
+                    continue
+                shape_type = shape.get("shape_type", "")
+                if shape_type not in ("polygon", "rectangle", "circle"):
+                    continue
+                label = str(shape.get("label", "")).strip()
+                points = shape.get("points", [])
+                if not points:
+                    continue
+                shapes.append({
+                    "label": label,
+                    "shape_type": shape_type,
+                    "points": points,
+                })
+
+            return {
+                "ok": True,
+                "shapes": shapes,
+                "imageWidth": image_width,
+                "imageHeight": image_height,
+            }
+        except Exception as exc:
+            return {"ok": False, "error": str(exc), "shapes": []}
 
     def open_path(self, path: str) -> dict[str, Any]:
         try:

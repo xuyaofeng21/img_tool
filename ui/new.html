@@ -552,6 +552,11 @@
             opacity: 0.5;
             cursor: not-allowed;
         }
+        .bg-nav-btn.active {
+            background: rgba(255,255,255,0.25);
+            color: #fff;
+            font-weight: bold;
+        }
         #manualCanvasArea { display: none; }
         #manualCanvasArea.active { display: block; }
         #previewContainer_manual {
@@ -734,6 +739,8 @@
                                         <button class="bg-nav-btn" id="btnPrevBg" title="上一张">◀</button>
                                         <span id="bgIndexDisplay">0/0</span>
                                         <button class="bg-nav-btn" id="btnNextBg" title="下一张">▶</button>
+                                        <span style="margin:0 4px;color:rgba(255,255,255,0.3);">|</span>
+                                        <button class="bg-nav-btn" id="btnToggleAnnotation" title="查看标注叠加">标注</button>
                                     </div>
                                 </div>
                                 <div class="placed-list" id="placedList"></div>
@@ -965,11 +972,13 @@
         },
         reorder_labels: {
             supportsInputMode: true,
-            title: "标签排序", desc: "把 station 标签移到最底层，方便数字标签(1-12)的移动操作。", icon: '<path d="M3 3h18v18H3z"/><path d="M3 9h18"/><path d="M9 21V9"/>',
+            title: "标签排序", desc: "把指定标签移到最底层，方便其他标签的移动操作。", icon: '<path d="M3 3h18v18H3z"/><path d="M3 9h18"/><path d="M9 21V9"/>',
             paths: [
                 { key: "input_dir", label: "JSON 目录", hint: "待处理的 JSON 文件夹", placeholder: "选择文件夹...", required: true }
             ],
-            params: []
+            params: [
+                { key: "bottom_labels", label: "底层标签", hint: "排到最底层的标签，多个用逗号分隔", placeholder: "自动检测", type: "text", datalist: "reorderLabelDatalist" }
+            ]
         },
         synthesize: {
             title: "合成标注",
@@ -1034,7 +1043,9 @@
             currentCroppedPreview: null,
             placedCount: 0,
             placedBgs: [],
-            currentBgIndex: 0
+            currentBgIndex: 0,
+            showAnnotations: false,
+            bgAnnotations: null
         }
     };
 
@@ -1472,6 +1483,12 @@
             }
             // 隐藏手动合成 UI
             hideManualSynthesizeUI();
+            // 标签排序：初始化时检测 labels
+            if (state.activeTask === "reorder_labels") {
+                requestAnimationFrame(() => requestAnimationFrame(() => {
+                    detectReorderLabels();
+                }));
+            }
         } else if (state.activeTask === "synthesize") {
             // 合成标注不支持原地修改，确保 safe_copy 模式 + 同步 UI
             if (state.mode === "in_place") {
@@ -1510,6 +1527,10 @@
                         if (k === "bg_json_folder") loadBackgroundList();
                         else if (k === "source_folder") loadMaterialLibrary();
                     }
+                }
+                // 标签排序：路径变化时检测 labels
+                if (state.activeTask === "reorder_labels" && kind === "path" && k === "input_dir") {
+                    detectReorderLabels();
                 }
                 triggerPreview();
             });
@@ -1555,6 +1576,10 @@
                 await rememberRecentPath(path);
                 if (state.activeTask === "synthesize" && k === "source_folder") {
                     inspectSynthesizeSource(true);
+                }
+                // 标签排序：路径变化时检测 labels
+                if (state.activeTask === "reorder_labels" && k === "input_dir") {
+                    detectReorderLabels();
                 }
                 // 手动合成模式下，路径变化时重新加载列表
                 if (state.activeTask === "synthesize" && state.synthesizeManual.mode === "manual") {
@@ -1836,6 +1861,7 @@
     function setupBgNavButtons() {
         const prevBtn = $("btnPrevBg");
         const nextBtn = $("btnNextBg");
+        const annotationBtn = $("btnToggleAnnotation");
 
         if (prevBtn) {
             prevBtn.onclick = async () => {
@@ -1855,6 +1881,14 @@
                     await selectManualBg(bgList[currentIndex + 1].path);
                 }
             };
+        }
+
+        if (annotationBtn) {
+            annotationBtn.onclick = async () => {
+                await toggleAnnotationMode();
+            };
+            // 初始化按钮状态
+            annotationBtn.classList.toggle("active", state.synthesizeManual.showAnnotations);
         }
     }
 
@@ -2022,6 +2056,119 @@
         img.src = "data:image/png;base64," + base64Image;
     }
 
+    // 标注颜色表（类似 labelme 配色）
+    const _annotationColors = [
+        [255, 0, 0], [0, 255, 0], [0, 0, 255], [255, 255, 0],
+        [255, 0, 255], [0, 255, 255], [128, 0, 255], [255, 128, 0],
+        [0, 128, 255], [128, 255, 0]
+    ];
+
+    // 加载背景图标注数据
+    async function loadBgAnnotations() {
+        const sm = state.synthesizeManual;
+        if (!sm.selectedBg || !sm.selectedBg.jsonPath) return;
+        const api = window.pywebview?.api;
+        if (!api?.get_bg_annotations) return;
+        try {
+            const result = await api.get_bg_annotations({ json_path: sm.selectedBg.jsonPath });
+            if (result?.ok) {
+                sm.bgAnnotations = result.shapes || [];
+            } else {
+                sm.bgAnnotations = [];
+            }
+        } catch (e) {
+            console.error("加载标注数据失败:", e);
+            sm.bgAnnotations = [];
+        }
+    }
+
+    // 在 canvas 上绘制标注多边形
+    function drawAnnotations(ctx, shapes) {
+        if (!shapes || shapes.length === 0) return;
+        const labelColorMap = {};
+        let colorIdx = 0;
+
+        for (const shape of shapes) {
+            const label = shape.label || "";
+            if (!(label in labelColorMap)) {
+                labelColorMap[label] = _annotationColors[colorIdx % _annotationColors.length];
+                colorIdx++;
+            }
+            const rgb = labelColorMap[label];
+            const points = shape.points;
+            if (!points || points.length < 2) continue;
+
+            ctx.save();
+            ctx.beginPath();
+
+            if (shape.shape_type === "rectangle" && points.length === 2) {
+                // rectangle: 两个对角点
+                const x1 = points[0][0], y1 = points[0][1];
+                const x2 = points[1][0], y2 = points[1][1];
+                ctx.rect(x1, y1, x2 - x1, y2 - y1);
+            } else {
+                // polygon / circle 等：用多边形路径
+                ctx.moveTo(points[0][0], points[0][1]);
+                for (let i = 1; i < points.length; i++) {
+                    ctx.lineTo(points[i][0], points[i][1]);
+                }
+                ctx.closePath();
+            }
+
+            // 半透明填充
+            ctx.fillStyle = `rgba(${rgb[0]},${rgb[1]},${rgb[2]},0.2)`;
+            ctx.fill();
+            // 实线边框
+            ctx.strokeStyle = `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`;
+            ctx.lineWidth = 2;
+            ctx.stroke();
+
+            // 在多边形中心绘制标签文字
+            if (label) {
+                let cx = 0, cy = 0;
+                for (const pt of points) {
+                    cx += pt[0]; cy += pt[1];
+                }
+                cx /= points.length;
+                cy /= points.length;
+
+                ctx.font = "bold 14px sans-serif";
+                ctx.fillStyle = `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`;
+                ctx.textAlign = "center";
+                ctx.textBaseline = "middle";
+                // 文字背景
+                const textW = ctx.measureText(label).width;
+                ctx.fillStyle = "rgba(0,0,0,0.6)";
+                ctx.fillRect(cx - textW / 2 - 3, cy - 9, textW + 6, 18);
+                ctx.fillStyle = `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`;
+                ctx.fillText(label, cx, cy);
+            }
+
+            ctx.restore();
+        }
+    }
+
+    // 切换标注显示模式
+    async function toggleAnnotationMode() {
+        const sm = state.synthesizeManual;
+        sm.showAnnotations = !sm.showAnnotations;
+
+        const btn = $("btnToggleAnnotation");
+        if (btn) {
+            btn.classList.toggle("active", sm.showAnnotations);
+        }
+
+        if (sm.showAnnotations) {
+            // 切换到显示标注：加载数据（如果未加载）
+            if (sm.bgAnnotations === null) {
+                await loadBgAnnotations();
+            }
+        }
+
+        // 重绘画布
+        redrawPlacements();
+    }
+
     // 绘制跟随鼠标的预览
     function drawPreviewAtMouse(canvasX, canvasY) {
         const canvas = $("manualCanvas");
@@ -2048,6 +2195,10 @@
         ctx.globalAlpha = 0.6;
         ctx.drawImage(_previewImg, canvasX - _previewImg.width / 2, canvasY - _previewImg.height / 2, _previewImg.width, _previewImg.height);
         ctx.globalAlpha = 1.0;
+        // 标注叠加显示
+        if (state.synthesizeManual.showAnnotations && state.synthesizeManual.bgAnnotations) {
+            drawAnnotations(ctx, state.synthesizeManual.bgAnnotations);
+        }
     }
 
     // 恢复显示背景图
@@ -2093,6 +2244,7 @@
         sm.placements = [];
         sm.undoStack = [];
         sm.placedCount = 0;
+        sm.bgAnnotations = null;  // 切换背景图时清空标注缓存
 
         // 清除所有素材 UI 高亮
         document.querySelectorAll("#materialGrid .material-item").forEach(el => {
@@ -2128,6 +2280,12 @@
                 highlightCurrentMaterial();
             } else {
                 restoreBackgroundImage();
+            }
+
+            // 如果标注模式开启，自动加载当前背景图的标注
+            if (sm.showAnnotations) {
+                await loadBgAnnotations();
+                redrawPlacements();
             }
 
             // 如果有选中的原图且还没放置，显示裁剪预览
@@ -2465,7 +2623,8 @@
                 _mouseDownPos = null;
             }
             if (sm.selectedSource && sm.placedCount < MAX_PLACEMENTS_PER_BG && _previewImg) {
-                restoreBackgroundImage();
+                // 只重绘画布清除预览，但保留 _previewImg 引用，以便鼠标重新进入时能继续显示
+                redrawPlacements();
             }
             if (_hoveredPlacementIdx >= 0) {
                 _hoveredPlacementIdx = -1;
@@ -2701,6 +2860,11 @@
 
         renderPlacedList();
 
+        // 标注叠加显示
+        if (state.synthesizeManual.showAnnotations && state.synthesizeManual.bgAnnotations) {
+            drawAnnotations(ctx, state.synthesizeManual.bgAnnotations);
+        }
+
         // 选中态常驻
         if (_selectedPlacementIdx >= 0 && _selectedPlacementIdx < placements.length) {
             drawHighlight(placements[_selectedPlacementIdx], "selected");
@@ -2734,6 +2898,11 @@
                 // 如果有裁剪预览，使用它
                 img.src = p.croppedPreview ? "data:image/png;base64," + p.croppedPreview : p.sourcePath;
             });
+        }
+
+        // 标注叠加显示
+        if (state.synthesizeManual.showAnnotations && state.synthesizeManual.bgAnnotations) {
+            drawAnnotations(ctx, state.synthesizeManual.bgAnnotations);
         }
 
         // 选中态常驻
@@ -2793,6 +2962,48 @@
         // 不要在这里调用 showManualSynthesizeUI()
         // 让 renderForm() -> setupManualSynthesizeUI() 来处理
     }
+
+    // 标签排序：检测 JSON 目录中的所有 label
+    async function detectReorderLabels() {
+        const task = state.formData["reorder_labels"];
+        if (!task) return;
+        const inputDir = String(task.paths?.input_dir || "").trim();
+        if (!inputDir) return;
+
+        const api = window.pywebview?.api;
+        if (!api?.detect_json_labels) return;
+
+        try {
+            const result = await api.detect_json_labels({ folder_path: inputDir });
+            if (!result?.ok) return;
+
+            const labels = result.labels || [];
+            // 更新 datalist
+            let datalist = document.getElementById("reorderLabelDatalist");
+            if (!datalist) {
+                datalist = document.createElement("datalist");
+                datalist.id = "reorderLabelDatalist";
+                document.body.appendChild(datalist);
+            }
+            datalist.innerHTML = labels.map(l => `<option value="${escapeAttr(l)}">`).join("");
+
+            // 如果只有一个 label，自动填充
+            const bottomLabelsInput = document.querySelector('input[data-key="bottom_labels"]');
+            if (bottomLabelsInput && !bottomLabelsInput.value && labels.length === 1) {
+                bottomLabelsInput.value = labels[0];
+                task.params.bottom_labels = labels[0];
+            }
+            // 如果有多个 labels 且当前值为空，显示提示
+            if (bottomLabelsInput && !bottomLabelsInput.value && labels.length > 1) {
+                bottomLabelsInput.placeholder = `检测到: ${labels.slice(0, 5).join(', ')}${labels.length > 5 ? '...' : ''}`;
+            }
+        } catch (e) {
+            console.error("检测 labels 失败:", e);
+        }
+    }
+
+    // 暴露给全局
+    window.detectReorderLabels = detectReorderLabels;
 
     async function inspectSynthesizeSource(force = false) {
         const task = getSynthesizeTaskState();

@@ -1508,11 +1508,24 @@ def _run_json_path_v2(paths: dict[str, Any], mode: str, backup_dir: str, log: Lo
     }
 
 
-def _run_reorder_labels(paths: dict[str, Any], mode: str, backup_dir: str, log: LogFn) -> dict[str, Any]:
-    """重新排序JSON中的shapes，把station标签移到最前面（底层），方便数字标签移动"""
+def _run_reorder_labels(paths: dict[str, Any], params: dict[str, Any], mode: str, backup_dir: str, log: LogFn) -> dict[str, Any]:
+    """重新排序JSON中的shapes，把用户指定的标签移到最前面（底层），方便其他标签的移动操作"""
     input_mode, mode_warnings = _normalize_input_mode(paths.get("input_mode", "folder"))
     for warning in mode_warnings:
         log("warn", warning)
+
+    # 获取用户指定的底层标签列表（逗号或分号分隔）
+    bottom_labels_raw = str(params.get("bottom_labels", "")).strip()
+    # 解析标签列表：支持逗号、分号分隔
+    import re
+    bottom_labels = [lbl.strip() for lbl in re.split(r"[,;]+", bottom_labels_raw) if lbl.strip()]
+    if not bottom_labels:
+        bottom_labels = ["station"]  # 默认值
+        log("info", "未指定底层标签，使用默认值: station")
+    else:
+        log("info", f"底层标签: {', '.join(bottom_labels)}")
+
+    bottom_labels_set = set(bottom_labels)
 
     def process_single_json(json_path: Path) -> tuple[bool, str]:
         """处理单个JSON文件，返回(是否成功, 消息)"""
@@ -1524,16 +1537,16 @@ def _run_reorder_labels(paths: dict[str, Any], mode: str, backup_dir: str, log: 
             if not shapes:
                 return True, f"⚠️ {json_path.name} 无shapes"
 
-            # 分离station和其他标签
-            station_shapes = [s for s in shapes if s.get('label') == 'station']
-            other_shapes = [s for s in shapes if s.get('label') != 'station']
+            # 分离底层标签和其他标签
+            bottom_shapes = [s for s in shapes if s.get('label') in bottom_labels_set]
+            other_shapes = [s for s in shapes if s.get('label') not in bottom_labels_set]
 
-            # 检查是否有station标签
-            if not station_shapes:
-                return True, f"ℹ️ {json_path.name} 无station标签（跳过）"
+            # 检查是否有指定的底层标签
+            if not bottom_shapes:
+                return True, f"ℹ️ {json_path.name} 无指定底层标签（跳过）"
 
-            # 重新排序：station在最前面（底层），其他标签在station上面
-            data['shapes'] = station_shapes + other_shapes
+            # 重新排序：底层标签在最前面，其他标签在上面
+            data['shapes'] = bottom_shapes + other_shapes
 
             with open(json_path, 'w', encoding='utf-8') as f:
                 json.dump(data, f, indent=2, ensure_ascii=False)
@@ -2376,7 +2389,7 @@ def _run_synthesize_manual_save(
         click_x = placement["click_x"]
         click_y = placement["click_y"]
         scale = float(placement.get("scale", 1.0))
-        rotation = float(placement.get("rotation", 0))
+        rotation = -float(placement.get("rotation", 0))
 
         # 获取抠图缓存（不旋转/镜像）
         obj_result = _get_or_create_object_cache(
@@ -2681,7 +2694,7 @@ def _run_synthesize_manual_run(
                 click_x = placement["click_x"]
                 click_y = placement["click_y"]
                 scale = float(placement.get("scale", 1.0))
-                rotation = float(placement.get("rotation", 0))
+                rotation = -float(placement.get("rotation", 0))
 
                 # 手动模式：直接读 JSON 标注，跳过 rembg（严格模式）
                 json_result = _load_source_with_json_annotation(
@@ -2819,7 +2832,7 @@ def execute_task(payload: dict[str, Any], log: LogFn) -> dict[str, Any]:
     if task == "json_path":
         return _run_json_path_v2(paths, mode, backup_dir, log)
     if task == "reorder_labels":
-        return _run_reorder_labels(paths, mode, backup_dir, log)
+        return _run_reorder_labels(paths, params, mode, backup_dir, log)
     if task == "synthesize":
         return _run_synthesize(paths, params, mode, backup_dir, log)
     if task == "synthesize_manual_save":

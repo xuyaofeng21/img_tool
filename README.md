@@ -2,7 +2,24 @@
 
 基于 `pywebview + Python + HTML/CSS/JS` 的桌面工具，面向 Windows/Linux 本地图片批处理场景。
 
-当前版本：**v1.3.0**
+当前版本：**v1.4.0**
+
+---
+
+## v1.4.0 更新（2026-05-06）
+
+**手动合成标注叠加显示：**
+- 画布导航栏新增"标注"切换按钮，点击可叠加显示 labelme JSON 中的多边形标注
+- 标注以半透明填充 + 实线边框 + 标签文字形式显示，不同 label 不同颜色
+- 切换背景图时标注自动更新，无 JSON 文件时不报错
+
+**标签排序功能增强：**
+- 不再硬编码 station 标签，改为自动检测 JSON 目录中所有 label 供用户选择
+- 新增"底层标签"参数，支持多标签（逗号分隔），路径变化时自动检测并填充下拉建议
+- 未指定时默认使用 station，保持向后兼容
+
+**Bug 修复：**
+- 修复鼠标移出画布后再移入，已选中素材的透明预览无法恢复的问题
 
 ---
 
@@ -55,7 +72,7 @@
 | `rename2` | 图片 + JSON 批量重命名 |
 | `select_diverse` | 多样性筛图（pHash 去重） |
 | `json_path` | JSON 的 `imagePath` 字段批量修复 |
-| `reorder_labels` | JSON 标注顺序重排（station → 底层） |
+| `reorder_labels` | JSON 标注顺序重排（自选标签 → 底层） |
 | `synthesize` | 合成标注（手动模式：点击放置 + 拖动调整） |
 
 ---
@@ -174,7 +191,7 @@ img_tool/
 │  ├─ test_tasks.py
 │  └─ test_wrappers.py
 ├─ ui/
-│  └─ new.html           # 单文件前端（HTML/CSS/JS ~3400 行）
+│  └─ new.html           # 单文件前端（HTML/CSS/JS ~3900 行）
 ├─ models/
 │  └─ u2net.onnx         # rembg 模型（需手动下载）
 ├─ logs/                  # 运行时生成
@@ -190,6 +207,6 @@ img_tool/
 ## 技术栈
 
 - **后端**：Python 3.12+ / pywebview / shapely / rembg / OpenCV
-- **前端**：Vanilla HTML/CSS/JS（单文件 ~3400 行），无框架
+- **前端**：Vanilla HTML/CSS/JS（单文件 ~3900 行），无框架
 - **构建**：PyInstaller (Windows) / linuxdeploy (Linux AppImage)
 - **CI/CD**：GitHub Actions 双平台自动构建
