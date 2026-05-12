@@ -2086,6 +2086,116 @@ def _rotate_object_and_polygon(
     return rotated, rotated_points, new_w, new_h
 
 
+def _apply_perspective_skew(
+    object_img: "np.ndarray",
+    polygon_points: list | None,
+    skew_y_deg: float,
+) -> tuple["np.ndarray", list | None, int, int]:
+    """应用 Y 轴透视倾斜（模拟 3D 空间绕垂直轴旋转），匹配 CSS perspective(800px) rotateY()。"""
+    import math
+
+    if abs(skew_y_deg) < 0.01:
+        h, w = object_img.shape[:2]
+        return object_img, polygon_points, w, h
+
+    h, w = object_img.shape[:2]
+    angle = math.radians(skew_y_deg)
+    P = 800.0  # CSS perspective(800px)
+
+    half_w = w / 2.0
+    half_h = h / 2.0
+    sin_a = math.sin(angle)
+    cos_a = math.cos(angle)
+
+    src_pts = np.float32([[0, 0], [w, 0], [0, h], [w, h]])
+
+    # 以图像中心为原点计算透视投影
+    cx = np.float32([-half_w, half_w, -half_w, half_w])
+    cy = np.float32([-half_h, -half_h, half_h, half_h])
+    # CSS rotateY: z' = -cx * sin(θ), 缩放 k = P / (P - z')
+    z = -cx * sin_a
+    k = P / (P - z)
+    sx = cx * cos_a * k + half_w
+    sy = cy * k + half_h
+    dst_pts = np.column_stack([sx, sy]).astype(np.float32)
+
+    # 计算新画布尺寸
+    min_x = dst_pts[:, 0].min()
+    max_x = dst_pts[:, 0].max()
+    min_y = dst_pts[:, 1].min()
+    max_y = dst_pts[:, 1].max()
+    new_w = int(math.ceil(max_x - min_x))
+    new_h = int(math.ceil(max_y - min_y))
+    dst_pts[:, 0] += -min_x
+    dst_pts[:, 1] += -min_y
+
+    matrix = cv2.getPerspectiveTransform(src_pts, dst_pts)
+    warped = cv2.warpPerspective(
+        object_img, matrix, (new_w, new_h),
+        flags=cv2.INTER_LINEAR,
+        borderMode=cv2.BORDER_CONSTANT,
+        borderValue=[0, 0, 0, 0],
+    )
+
+    warped_points = None
+    if polygon_points is not None:
+        pts_array = np.float32([polygon_points]).reshape(-1, 1, 2)
+        warped_pts = cv2.perspectiveTransform(pts_array, matrix)
+        warped_points = [[float(p[0][0]), float(p[0][1])] for p in warped_pts]
+
+    return warped, warped_points, new_w, new_h
+
+
+def get_perspective_preview(
+    source_path_str: str,
+    target_label: str | None,
+    max_object_size: int,
+    rotation: float,
+    flip_h: bool,
+    skew_y: float,
+    scale: float,
+    log: Any,
+) -> dict | None:
+    """生成带全部变换的物体预览图（base64），供前端 CSS 预览落定后使用。"""
+    import base64 as b64
+
+    source_path = Path(source_path_str)
+    if not source_path.exists():
+        return None
+
+    result = _load_source_with_json_annotation(
+        source_path, target_label, max_object_size, log
+    )
+    if result is None:
+        return None
+
+    object_img, src_polygon_points, _ = result
+
+    if rotation != 0:
+        object_img, src_polygon_points, _, _ = _rotate_object_and_polygon(
+            object_img, src_polygon_points, -rotation
+        )
+
+    if flip_h:
+        object_img = cv2.flip(object_img, 1)
+        if src_polygon_points:
+            _, obj_w = object_img.shape[:2]
+            src_polygon_points = [[obj_w - p[0], p[1]] for p in src_polygon_points]
+
+    if skew_y != 0:
+        object_img, src_polygon_points, _, _ = _apply_perspective_skew(
+            object_img, src_polygon_points, skew_y
+        )
+
+    if scale != 1.0:
+        new_w = max(1, int(object_img.shape[1] * scale))
+        new_h = max(1, int(object_img.shape[0] * scale))
+        object_img = cv2.resize(object_img, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
+
+    _, buf = cv2.imencode(".png", object_img)
+    return {"image": b64.b64encode(buf).decode(), "width": object_img.shape[1], "height": object_img.shape[0]}
+
+
 def _place_object_on_grass(
     object_img: "np.ndarray",
     bg_img: "np.ndarray",
@@ -2312,6 +2422,8 @@ def _run_synthesize_manual_save(
             "click_y": float(p.get("click_y", 0)),
             "scale": float(p.get("scale", 1.0)),
             "rotation": float(p.get("rotation", 0)),
+            "flipH": bool(p.get("flipH", False)),
+            "skewY": float(p.get("skewY", 0)),
         })
 
     if not processed_placements:
@@ -2390,6 +2502,8 @@ def _run_synthesize_manual_save(
         click_y = placement["click_y"]
         scale = float(placement.get("scale", 1.0))
         rotation = -float(placement.get("rotation", 0))
+        flip_h = bool(placement.get("flipH", False))
+        skew_y = float(placement.get("skewY", 0))
 
         # 获取抠图缓存（不旋转/镜像）
         obj_result = _get_or_create_object_cache(
@@ -2405,6 +2519,16 @@ def _run_synthesize_manual_save(
         if rotation != 0:
             object_img, _, obj_w, obj_h = _rotate_object_and_polygon(
                 object_img, None, rotation
+            )
+
+        # 应用水平镜像
+        if flip_h:
+            object_img = cv2.flip(object_img, 1)
+
+        # 应用透视倾斜
+        if skew_y != 0:
+            object_img, _, obj_w, obj_h = _apply_perspective_skew(
+                object_img, None, skew_y
             )
 
         # 应用用户缩放
@@ -2668,6 +2792,8 @@ def _run_synthesize_manual_run(
                     "click_y": float(p.get("click_y", 0)),
                     "scale": float(p.get("scale", 1.0)),
                     "rotation": float(p.get("rotation", 0)),
+                    "flipH": bool(p.get("flipH", False)),
+                    "skewY": float(p.get("skewY", 0)),
                 })
 
             if not processed_placements:
@@ -2695,6 +2821,8 @@ def _run_synthesize_manual_run(
                 click_y = placement["click_y"]
                 scale = float(placement.get("scale", 1.0))
                 rotation = -float(placement.get("rotation", 0))
+                flip_h = bool(placement.get("flipH", False))
+                skew_y = float(placement.get("skewY", 0))
 
                 # 手动模式：直接读 JSON 标注，跳过 rembg（严格模式）
                 json_result = _load_source_with_json_annotation(
@@ -2709,6 +2837,19 @@ def _run_synthesize_manual_run(
                 if rotation != 0:
                     object_img, src_polygon_points, obj_w, obj_h = _rotate_object_and_polygon(
                         object_img, src_polygon_points, rotation
+                    )
+
+                # 应用水平镜像
+                if flip_h:
+                    object_img = cv2.flip(object_img, 1)
+                    if src_polygon_points:
+                        _, obj_w_flip = object_img.shape[:2]
+                        src_polygon_points = [[obj_w_flip - p[0], p[1]] for p in src_polygon_points]
+
+                # 应用透视倾斜
+                if skew_y != 0:
+                    object_img, src_polygon_points, obj_w, obj_h = _apply_perspective_skew(
+                        object_img, src_polygon_points, skew_y
                     )
 
                 # 应用用户缩放

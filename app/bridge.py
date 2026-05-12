@@ -269,6 +269,34 @@ class ApiBridge:
             traceback.print_exc()
             return {"ok": False, "error": str(exc), "image": ""}
 
+    def get_perspective_preview(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """生成带全部变换的物体预览图（base64），供前端透视倾斜落定后使用"""
+        try:
+            source_path = str(payload.get("source_path", "")).strip()
+            target_label = str(payload.get("target_label", "")).strip() or None
+            max_object_size = int(payload.get("max_object_size", 350))
+            rotation = float(payload.get("rotation", 0))
+            flip_h = bool(payload.get("flipH", False))
+            skew_y = float(payload.get("skewY", 0))
+            scale = float(payload.get("scale", 1.0))
+
+            def _silent_log(level, msg):
+                pass
+
+            from app.wrappers import get_perspective_preview as _get_pp
+
+            result = _get_pp(
+                source_path, target_label, max_object_size,
+                rotation, flip_h, skew_y, scale, _silent_log
+            )
+            if result is None:
+                return {"ok": False, "error": "生成透视预览失败"}
+            return {"ok": True, "image": result["image"], "width": result["width"], "height": result["height"]}
+        except Exception as exc:
+            import traceback
+            traceback.print_exc()
+            return {"ok": False, "error": str(exc)}
+
     def get_settings(self) -> dict[str, Any]:
         try:
             return {

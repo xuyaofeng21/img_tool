@@ -579,6 +579,15 @@
             height: 100%;
             cursor: crosshair;
         }
+        #skewPreviewOverlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            pointer-events: none;
+            z-index: 10;
+            transform-origin: center center;
+            opacity: 0.85;
+        }
         .placed-list {
             display: flex;
             flex-wrap: wrap;
@@ -734,6 +743,7 @@
                                 <div id="previewContainer_manual" style="position:relative; display:inline-block;">
                                     <img id="manualBgImage" style="display:block; max-width:100%;">
                                     <canvas id="manualCanvas"></canvas>
+                                    <div id="skewPreviewOverlay" style="display:none;"></div>
                                     <!-- 背景图序号和切换按钮 -->
                                     <div class="bg-nav-controls">
                                         <button class="bg-nav-btn" id="btnPrevBg" title="上一张">◀</button>
@@ -2182,9 +2192,12 @@
         // 重绘已放置的素材
         const placements = state.synthesizeManual.placements;
         for (const p of placements) {
-            if (p.croppedPreview) {
+            const src = p.warpedPreview
+                ? "data:image/png;base64," + p.warpedPreview
+                : (p.croppedPreview ? "data:image/png;base64," + p.croppedPreview : null);
+            if (src) {
                 const placedImg = new Image();
-                placedImg.src = "data:image/png;base64," + p.croppedPreview;
+                placedImg.src = src;
                 if (placedImg.complete) {
                     const dp = getScaledDrawParams(p);
                     ctx.drawImage(placedImg, dp.x, dp.y, dp.w, dp.h);
@@ -2385,6 +2398,11 @@
         let _rotateInitialRotation = 0;// mousedown 时的旋转值
         let _isRotating = false;       // 是否正在旋转
 
+        // ===== 透视倾斜状态 =====
+        let _skewingIdx = -1;          // 正在倾斜的 placement 索引
+        let _skewStartX = 0;           // mousedown 时的鼠标 clientX
+        let _skewInitialY = 0;         // mousedown 时的 skewY 值
+        let _isSkewing = false;        // 是否正在倾斜
         // ===== 选中状态（持久，不随鼠标消失） =====
         let _selectedPlacementIdx = -1;
 
@@ -2416,53 +2434,123 @@
         }
 
         // ===== 绘制高亮轮廓 =====
-        // mode: "hover" = 虚线边框（鼠标悬停提示）, "selected" = 实线边框 + 旋转手柄（点击选中后常驻）
+        // mode: "hover" = 虚线边框, "selected" = 实线边框 + 控制手柄
         function drawHighlight(placement, mode = "selected") {
             const canvas = $("manualCanvas");
             if (!canvas) return;
             const ctx = canvas.getContext("2d");
             const dp = getScaledDrawParams(placement);
+            const hasWarp = placement.warpedPreview != null;
             const rotation = placement.rotation || 0;
             const angleRad = rotation * Math.PI / 180;
 
             ctx.save();
-            ctx.translate(placement.clickX, placement.clickY);
-            ctx.rotate(angleRad);
+            if (!hasWarp) {
+                ctx.translate(placement.clickX, placement.clickY);
+                ctx.rotate(angleRad);
+            }
 
             // 边框
-            ctx.strokeStyle = mode === "selected" ? "#00ccff" : "#00ff00";
-            ctx.lineWidth = mode === "selected" ? 2.5 : 1.5;
-            if (mode === "hover") {
-                ctx.setLineDash([6, 3]);
+            if (hasWarp) {
+                ctx.strokeStyle = mode === "selected" ? "#00ccff" : "#00ff00";
+                ctx.lineWidth = mode === "selected" ? 2.5 : 1.5;
+                ctx.setLineDash(mode === "hover" ? [6, 3] : []);
+                ctx.strokeRect(dp.x, dp.y, dp.w, dp.h);
             } else {
-                ctx.setLineDash([]);
+                ctx.strokeStyle = mode === "selected" ? "#00ccff" : "#00ff00";
+                ctx.lineWidth = mode === "selected" ? 2.5 : 1.5;
+                if (mode === "hover") {
+                    ctx.setLineDash([6, 3]);
+                } else {
+                    ctx.setLineDash([]);
+                }
+                ctx.strokeRect(-dp.w / 2, -dp.h / 2, dp.w, dp.h);
             }
-            ctx.strokeRect(-dp.w / 2, -dp.h / 2, dp.w, dp.h);
 
-            // 只在选中模式下显示旋转手柄
+            // 选中模式下显示控制手柄
             if (mode === "selected") {
-                const handleX = dp.w / 2;
-                const handleY = -dp.h / 2;
-                // 手柄外圈光晕
+                let mirrorX, mirrorY, skewHX, skewHY, rotX, rotY;
+                if (hasWarp) {
+                    mirrorX = dp.x; mirrorY = dp.y;
+                    skewHX = dp.x + dp.w / 2; skewHY = dp.y + dp.h;
+                    rotX = dp.x + dp.w; rotY = dp.y;
+                } else {
+                    mirrorX = -dp.w / 2; mirrorY = -dp.h / 2;
+                    skewHX = 0; skewHY = dp.h / 2;
+                    rotX = dp.w / 2; rotY = -dp.h / 2;
+                }
+                // ── 镜像按钮（左上角） ──
+                const mirrorActive = placement.flipH === true;
                 ctx.beginPath();
-                ctx.arc(handleX, handleY, 12, 0, Math.PI * 2);
+                ctx.arc(mirrorX, mirrorY, 12, 0, Math.PI * 2);
+                ctx.fillStyle = mirrorActive ? "rgba(255, 165, 0, 0.35)" : "rgba(255, 255, 255, 0.15)";
+                ctx.fill();
+                ctx.beginPath();
+                ctx.arc(mirrorX, mirrorY, 7, 0, Math.PI * 2);
+                ctx.fillStyle = mirrorActive ? "#ff8c00" : "#888";
+                ctx.fill();
+                ctx.strokeStyle = "#fff";
+                ctx.lineWidth = 1.5;
+                ctx.setLineDash([]);
+                ctx.stroke();
+                ctx.beginPath();
+                ctx.moveTo(mirrorX - 3.5, mirrorY);
+                ctx.lineTo(mirrorX + 3.5, mirrorY);
+                ctx.moveTo(mirrorX - 1.5, mirrorY - 2);
+                ctx.lineTo(mirrorX - 3.5, mirrorY);
+                ctx.lineTo(mirrorX - 1.5, mirrorY + 2);
+                ctx.moveTo(mirrorX + 1.5, mirrorY - 2);
+                ctx.lineTo(mirrorX + 3.5, mirrorY);
+                ctx.lineTo(mirrorX + 1.5, mirrorY + 2);
+                ctx.strokeStyle = "#fff";
+                ctx.lineWidth = 1.5;
+                ctx.stroke();
+
+                // ── 透视倾斜手柄（底部中间） ──
+                const skewActive = Math.abs(placement.skewY || 0) > 0.5;
+                ctx.beginPath();
+                ctx.arc(skewHX, skewHY, 12, 0, Math.PI * 2);
+                ctx.fillStyle = skewActive ? "rgba(138, 43, 226, 0.35)" : "rgba(255, 255, 255, 0.15)";
+                ctx.fill();
+                ctx.beginPath();
+                ctx.arc(skewHX, skewHY, 7, 0, Math.PI * 2);
+                ctx.fillStyle = skewActive ? "#8a2be2" : "#888";
+                ctx.fill();
+                ctx.strokeStyle = "#fff";
+                ctx.lineWidth = 1.5;
+                ctx.setLineDash([]);
+                ctx.stroke();
+                ctx.beginPath();
+                ctx.moveTo(skewHX - 3.5, skewHY);
+                ctx.lineTo(skewHX + 3.5, skewHY);
+                ctx.moveTo(skewHX - 1.5, skewHY - 2);
+                ctx.lineTo(skewHX - 3.5, skewHY);
+                ctx.lineTo(skewHX - 1.5, skewHY + 2);
+                ctx.moveTo(skewHX + 1.5, skewHY - 2);
+                ctx.lineTo(skewHX + 3.5, skewHY);
+                ctx.lineTo(skewHX + 1.5, skewHY + 2);
+                ctx.strokeStyle = "#fff";
+                ctx.lineWidth = 1.5;
+                ctx.stroke();
+
+                // ── 旋转手柄（右上角） ──
+                ctx.beginPath();
+                ctx.arc(rotX, rotY, 12, 0, Math.PI * 2);
                 ctx.fillStyle = "rgba(0, 204, 255, 0.25)";
                 ctx.fill();
-                // 手柄本体
                 ctx.beginPath();
-                ctx.arc(handleX, handleY, 7, 0, Math.PI * 2);
+                ctx.arc(rotX, rotY, 7, 0, Math.PI * 2);
                 ctx.fillStyle = "#00ccff";
                 ctx.fill();
                 ctx.strokeStyle = "#fff";
                 ctx.lineWidth = 1.5;
                 ctx.setLineDash([]);
                 ctx.stroke();
-                // 手柄内图标（简化十字箭头）
                 ctx.beginPath();
-                ctx.moveTo(handleX - 3, handleY);
-                ctx.lineTo(handleX + 3, handleY);
-                ctx.moveTo(handleX, handleY - 3);
-                ctx.lineTo(handleX, handleY + 3);
+                ctx.moveTo(rotX - 3, rotY);
+                ctx.lineTo(rotX + 3, rotY);
+                ctx.moveTo(rotX, rotY - 3);
+                ctx.lineTo(rotX, rotY + 3);
                 ctx.strokeStyle = "#fff";
                 ctx.lineWidth = 1.5;
                 ctx.stroke();
@@ -2485,6 +2573,119 @@
             };
         }
 
+        // ===== 获取镜像按钮在 canvas 上的位置（左上角） =====
+        function getMirrorHandlePos(placement) {
+            const dp = getScaledDrawParams(placement);
+            const halfW = dp.w / 2;
+            const halfH = dp.h / 2;
+            const angleRad = (placement.rotation || 0) * Math.PI / 180;
+            const cosA = Math.cos(angleRad);
+            const sinA = Math.sin(angleRad);
+            return {
+                x: placement.clickX - halfW * cosA + halfH * sinA,
+                y: placement.clickY - halfW * sinA - halfH * cosA
+            };
+        }
+
+        // ===== 获取透视倾斜手柄在 canvas 上的位置（底部中间） =====
+        function getSkewHandlePos(placement) {
+            const dp = getScaledDrawParams(placement);
+            const halfH = dp.h / 2;
+            const angleRad = (placement.rotation || 0) * Math.PI / 180;
+            const cosA = Math.cos(angleRad);
+            const sinA = Math.sin(angleRad);
+            return {
+                x: placement.clickX - halfH * sinA,
+                y: placement.clickY + halfH * cosA
+            };
+        }
+
+        // ===== 根据手柄位置设置光标 =====
+        function _setCursorForHandles(cx, cy, placement) {
+            const hasWarp = placement.warpedPreview != null;
+            let rotPos, mirrorPos, skewPos;
+            if (hasWarp) {
+                const dp = getScaledDrawParams(placement);
+                mirrorPos = { x: dp.x, y: dp.y };
+                skewPos = { x: dp.x + dp.w / 2, y: dp.y + dp.h };
+                rotPos = { x: dp.x + dp.w, y: dp.y };
+            } else {
+                rotPos = getRotationHandlePos(placement);
+                mirrorPos = getMirrorHandlePos(placement);
+                skewPos = getSkewHandlePos(placement);
+            }
+            const rotDist = Math.sqrt((cx - rotPos.x) ** 2 + (cy - rotPos.y) ** 2);
+            const mirrorDist = Math.sqrt((cx - mirrorPos.x) ** 2 + (cy - mirrorPos.y) ** 2);
+            const skewDist = Math.sqrt((cx - skewPos.x) ** 2 + (cy - skewPos.y) ** 2);
+            if (rotDist <= 14) canvas.style.cursor = "grab";
+            else if (mirrorDist <= 14) canvas.style.cursor = "pointer";
+            else if (skewDist <= 14) canvas.style.cursor = "ew-resize";
+            else canvas.style.cursor = "move";
+        }
+
+        // ===== CSS 3D 透视预览 =====
+        function showSkewPreview(placement) {
+            const overlay = $("skewPreviewOverlay");
+            if (!overlay) return;
+            const dp = getScaledDrawParams(placement);
+            const src = placement.croppedPreview
+                ? "data:image/png;base64," + placement.croppedPreview
+                : placement.sourcePath;
+            const baseW = placement.imageWidth || dp.w;
+            const baseH = placement.imageHeight || dp.h;
+            overlay.innerHTML = `<img src="${src}" style="width:${baseW}px;height:${baseH}px;display:block;">`;
+            overlay.style.display = "block";
+            overlay.style.width = baseW + "px";
+            overlay.style.height = baseH + "px";
+            overlay.style.left = (placement.clickX - baseW / 2) + "px";
+            overlay.style.top = (placement.clickY - baseH / 2) + "px";
+            updateSkewPreview(placement);
+        }
+
+        function updateSkewPreview(placement) {
+            const overlay = $("skewPreviewOverlay");
+            if (!overlay || overlay.style.display === "none") return;
+            const r = placement.rotation || 0;
+            const fy = placement.skewY || 0;
+            const s = placement.scale || 1;
+            const fx = placement.flipH ? -1 : 1;
+            // CSS 从右到左: rotateY → perspective → scale → flip → rotate
+            overlay.style.transform = `rotate(${r}deg) scaleX(${fx}) scale(${s}) perspective(800px) rotateY(${fy}deg)`;
+        }
+
+        function hideSkewPreview() {
+            const overlay = $("skewPreviewOverlay");
+            if (!overlay) return;
+            overlay.style.display = "none";
+            overlay.innerHTML = "";
+            overlay.style.transform = "";
+        }
+
+        async function fetchPerspectivePreview(placement) {
+            const api = window.pywebview?.api;
+            if (!api?.get_perspective_preview) return;
+            const ts = state.formData["synthesize"];
+            try {
+                const result = await api.get_perspective_preview({
+                    source_path: placement.sourcePath,
+                    target_label: ts?.params?.target_label || "",
+                    max_object_size: parseInt(ts?.params?.max_object_size) || 350,
+                    rotation: placement.rotation || 0,
+                    flipH: placement.flipH || false,
+                    skewY: placement.skewY || 0,
+                    scale: placement.scale || 1.0
+                });
+                if (result?.ok && result.image) {
+                    placement.warpedPreview = result.image;
+                    if (result.width) placement.imageWidth = result.width;
+                    if (result.height) placement.imageHeight = result.height;
+                    redrawPlacements();
+                }
+            } catch (e) {
+                // 静默失败
+            }
+        }
+
         // ===== 鼠标按下 =====
         canvas.onmousedown = (e) => {
             if (e.button !== 0) return;  // 只处理左键
@@ -2498,13 +2699,62 @@
             _mouseDownPos = { cx, cy, clientX: e.clientX, clientY: e.clientY };
             _isDragging = false;
             _isRotating = false;
+            _isSkewing = false;
 
-            // 优先检测旋转手柄（需要先有选中）
+            // 检测透视倾斜手柄（底部中间，最优先）
             if (_selectedPlacementIdx >= 0) {
                 const p = sm.placements[_selectedPlacementIdx];
-                const handlePos = getRotationHandlePos(p);
-                const dist = Math.sqrt((cx - handlePos.x) ** 2 + (cy - handlePos.y) ** 2);
+                let skewPos;
+                if (p.warpedPreview) {
+                    const dpW = getScaledDrawParams(p);
+                    skewPos = { x: dpW.x + dpW.w / 2, y: dpW.y + dpW.h };
+                } else {
+                    skewPos = getSkewHandlePos(p);
+                }
+                const skewDist = Math.sqrt((cx - skewPos.x) ** 2 + (cy - skewPos.y) ** 2);
+                if (skewDist <= 14) {
+                    if (p.warpedPreview) { p.warpedPreview = null; }
+                    _skewingIdx = _selectedPlacementIdx;
+                    _isSkewing = true;
+                    _skewStartX = _mouseDownPos.clientX;
+                    _skewInitialY = p.skewY || 0;
+                    showSkewPreview(p);
+                    e.preventDefault();
+                    return;
+                }
+            }
+
+            // 检测镜像按钮（左上角）
+            if (_selectedPlacementIdx >= 0) {
+                const p = sm.placements[_selectedPlacementIdx];
+                let mirrorPos;
+                if (p.warpedPreview) {
+                    const dpW = getScaledDrawParams(p);
+                    mirrorPos = { x: dpW.x, y: dpW.y };
+                } else {
+                    mirrorPos = getMirrorHandlePos(p);
+                }
+                const mirrorDist = Math.sqrt((cx - mirrorPos.x) ** 2 + (cy - mirrorPos.y) ** 2);
+                if (mirrorDist <= 14) {
+                    if (p.warpedPreview) { p.warpedPreview = null; }
+                    p.flipH = !p.flipH;
+                    redrawPlacements();
+                    if (p.skewY && p.skewY !== 0) { fetchPerspectivePreview(p); }
+                    e.preventDefault();
+                    return;
+                }
+
+                // 检测旋转手柄
+                let rotPos;
+                if (p.warpedPreview) {
+                    const dpW = getScaledDrawParams(p);
+                    rotPos = { x: dpW.x + dpW.w, y: dpW.y };
+                } else {
+                    rotPos = getRotationHandlePos(p);
+                }
+                const dist = Math.sqrt((cx - rotPos.x) ** 2 + (cy - rotPos.y) ** 2);
                 if (dist <= 14) {
+                    if (p.warpedPreview) { p.warpedPreview = null; redrawPlacements(); }
                     _rotatingIdx = _selectedPlacementIdx;
                     _isRotating = true;
                     _rotateInitialAngle = Math.atan2(cy - p.clickY, cx - p.clickX) * 180 / Math.PI;
@@ -2540,6 +2790,17 @@
             const scaleY = canvas.height / rect.height;
             const cx = (e.clientX - rect.left) * scaleX;
             const cy = (e.clientY - rect.top) * scaleY;
+
+            // 透视倾斜模式
+            if (_isSkewing && _skewingIdx >= 0) {
+                const p = sm.placements[_skewingIdx];
+                const deltaX = e.clientX - _skewStartX;
+                const maxDrag = 120;
+                const ratio = Math.max(-1, Math.min(1, deltaX / maxDrag));
+                p.skewY = Math.round(ratio * 75);
+                updateSkewPreview(p);
+                return;
+            }
 
             // 旋转模式
             if (_isRotating && _rotatingIdx >= 0) {
@@ -2589,10 +2850,7 @@
                     canvas.style.cursor = "pointer";
                 } else if (hitIdx >= 0) {
                     // 悬停在已选中的物体上
-                    const p = sm.placements[hitIdx];
-                    const handlePos = getRotationHandlePos(p);
-                    const dist = Math.sqrt((cx - handlePos.x) ** 2 + (cy - handlePos.y) ** 2);
-                    canvas.style.cursor = dist <= 14 ? "grab" : "move";
+                    _setCursorForHandles(cx, cy, sm.placements[hitIdx]);
                 } else {
                     canvas.style.cursor = "crosshair";
                 }
@@ -2600,10 +2858,7 @@
 
             // 悬停在已选中物体上时，持续更新光标（处理未变化的情况）
             if (hitIdx >= 0 && hitIdx === _selectedPlacementIdx) {
-                const p = sm.placements[hitIdx];
-                const handlePos = getRotationHandlePos(p);
-                const dist = Math.sqrt((cx - handlePos.x) ** 2 + (cy - handlePos.y) ** 2);
-                canvas.style.cursor = dist <= 14 ? "grab" : "move";
+                _setCursorForHandles(cx, cy, sm.placements[hitIdx]);
             }
         };
 
@@ -2614,6 +2869,12 @@
                 // 拖动中离开画布，结束拖动
                 _dragIdx = -1;
                 _isDragging = false;
+                _mouseDownPos = null;
+            }
+            if (_isSkewing) {
+                hideSkewPreview();
+                _skewingIdx = -1;
+                _isSkewing = false;
                 _mouseDownPos = null;
             }
             if (_isRotating) {
@@ -2637,8 +2898,28 @@
             if (e.button !== 0) return;
             const sm = state.synthesizeManual;
 
+            // 结束透视倾斜
+            if (_isSkewing) {
+                hideSkewPreview();
+                const p = sm.placements[_skewingIdx];
+                if (p && p.skewY !== 0) {
+                    fetchPerspectivePreview(p);
+                } else if (p) {
+                    p.warpedPreview = null;
+                    redrawPlacements();
+                }
+                _skewingIdx = -1;
+                _isSkewing = false;
+                _mouseDownPos = null;
+                return;
+            }
+
             // 结束旋转
             if (_isRotating) {
+                const p = sm.placements[_rotatingIdx];
+                if (p && p.skewY && p.skewY !== 0) {
+                    fetchPerspectivePreview(p);
+                }
                 _rotatingIdx = -1;
                 _isRotating = false;
                 _mouseDownPos = null;
@@ -2730,7 +3011,10 @@
                             croppedPreview: result.image,
                             sourceIndex: placedCount,
                             scale: 1.0,
-                            rotation: 0
+                            rotation: 0,
+                            flipH: false,
+                            skewY: 0,
+                            warpedPreview: null
                         };
                         state.synthesizeManual.placements.push(placement);
                         state.synthesizeManual.undoStack.push(state.synthesizeManual.placements.length - 1);
@@ -2844,17 +3128,26 @@
             await new Promise(resolve => {
                 img.onload = () => {
                     const dp = getScaledDrawParams(p);
-                    ctx.save();
-                    ctx.translate(p.clickX, p.clickY);
-                    if (p.rotation) {
-                        ctx.rotate(p.rotation * Math.PI / 180);
+                    if (p.warpedPreview) {
+                        ctx.drawImage(img, dp.x, dp.y, dp.w, dp.h);
+                    } else {
+                        ctx.save();
+                        ctx.translate(p.clickX, p.clickY);
+                        if (p.rotation) {
+                            ctx.rotate(p.rotation * Math.PI / 180);
+                        }
+                        if (p.flipH) {
+                            ctx.scale(-1, 1);
+                        }
+                        ctx.drawImage(img, -dp.w / 2, -dp.h / 2, dp.w, dp.h);
+                        ctx.restore();
                     }
-                    ctx.drawImage(img, -dp.w / 2, -dp.h / 2, dp.w, dp.h);
-                    ctx.restore();
                     resolve();
                 };
                 img.onerror = resolve;
-                img.src = p.croppedPreview ? "data:image/png;base64," + p.croppedPreview : p.sourcePath;
+                img.src = p.warpedPreview
+                    ? "data:image/png;base64," + p.warpedPreview
+                    : (p.croppedPreview ? "data:image/png;base64," + p.croppedPreview : p.sourcePath);
             });
         }
 
@@ -2885,18 +3178,26 @@
             await new Promise(resolve => {
                 img.onload = () => {
                     const dp = getScaledDrawParams(p);
-                    ctx.save();
-                    ctx.translate(p.clickX, p.clickY);
-                    if (p.rotation) {
-                        ctx.rotate(p.rotation * Math.PI / 180);
+                    if (p.warpedPreview) {
+                        ctx.drawImage(img, dp.x, dp.y, dp.w, dp.h);
+                    } else {
+                        ctx.save();
+                        ctx.translate(p.clickX, p.clickY);
+                        if (p.rotation) {
+                            ctx.rotate(p.rotation * Math.PI / 180);
+                        }
+                        if (p.flipH) {
+                            ctx.scale(-1, 1);
+                        }
+                        ctx.drawImage(img, -dp.w / 2, -dp.h / 2, dp.w, dp.h);
+                        ctx.restore();
                     }
-                    ctx.drawImage(img, -dp.w / 2, -dp.h / 2, dp.w, dp.h);
-                    ctx.restore();
                     resolve();
                 };
                 img.onerror = resolve;
-                // 如果有裁剪预览，使用它
-                img.src = p.croppedPreview ? "data:image/png;base64," + p.croppedPreview : p.sourcePath;
+                img.src = p.warpedPreview
+                    ? "data:image/png;base64," + p.warpedPreview
+                    : (p.croppedPreview ? "data:image/png;base64," + p.croppedPreview : p.sourcePath);
             });
         }
 
@@ -2936,7 +3237,9 @@
                     click_x: Math.round(p.clickX),
                     click_y: Math.round(p.clickY),
                     scale: p.scale || 1.0,
-                    rotation: p.rotation || 0
+                    rotation: p.rotation || 0,
+                    flipH: p.flipH || false,
+                    skewY: p.skewY || 0
                 }))
             }
         };
@@ -3297,7 +3600,9 @@
                                     click_x: Math.round(pl.clickX),
                                     click_y: Math.round(pl.clickY),
                                     scale: pl.scale || 1.0,
-                                    rotation: pl.rotation || 0
+                                    rotation: pl.rotation || 0,
+                                    flipH: pl.flipH || false,
+                                    skewY: pl.skewY || 0
                                 }))
                             });
                         }
